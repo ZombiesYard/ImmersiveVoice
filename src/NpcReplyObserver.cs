@@ -1,9 +1,13 @@
 using System;
+using System.Diagnostics;
 using EFT;
+using EFT.Ballistics;
 using UnityEngine;
 
 namespace ImmersiveVoice
 {
+    // Bounded records contain nearby heard NPCs or witnessed NPC damage.
+    // No raid roster, AI brain, new raycast or audio decoding is used.
     internal sealed class NpcReplyObserver
     {
         private sealed class Probe
@@ -15,105 +19,293 @@ namespace ImmersiveVoice
             public float Started;
             public void Clear() { Player = null; Clip = null; Source = null; }
         }
-        private static readonly EPhraseTrigger[] Inputs = { EPhraseTrigger.OnFight, EPhraseTrigger.OnEnemyConversation,
-            EPhraseTrigger.OnFirstContact, EPhraseTrigger.OnRepeatedContact, EPhraseTrigger.Provocation, EPhraseTrigger.OnMutter };
-        private readonly Probe[] _probes = { new Probe(), new Probe(), new Probe(), new Probe() };
+        private sealed class Peer
+        {
+            public Player Player;
+            public NpcLine Line;
+            public EPhraseTrigger Phrase;
+            public float HeardAt, End, Expires, SampleAt, CoverUntil, HitAt;
+            public string Attacker;
+            public bool Open, Directed;
+            public string LastReason;
+            public Vector3 Position;
+            public float FollowSince = -1, ApproachSince = -1, AdvanceSince = -1, RetreatSince = -1, HoldSince = -1;
+            public NpcActions Actions;
+            public readonly NpcTurnMemory Turns = new NpcTurnMemory();
+            public void Bind(Player player, float now)
+            {
+                Player = player; Open = false; Directed = false; LastReason = null; Attacker = null; CoverUntil = HitAt = -1000;
+                HeardAt = SampleAt = now; Position = player.Transform.position; Actions = default;
+                FollowSince = ApproachSince = AdvanceSince = RetreatSince = HoldSince = -1;
+                Turns.Clear();
+            }
+        }
+        private static readonly EPhraseTrigger[] Phrases = (EPhraseTrigger[])Enum.GetValues(typeof(EPhraseTrigger));
+        private readonly Probe[] _probes = new Probe[NpcDialogueRules.Capacity];
+        private readonly Peer[] _peers = new Peer[NpcDialogueRules.Capacity];
         private readonly Player _local;
         private readonly FikaBridge _fika;
         private readonly Func<string, float, bool> _knownHostile;
         private readonly Action<string> _trace;
         private readonly NpcReplyMemory _memory = new NpcReplyMemory();
         private readonly System.Random _random = new System.Random();
-        private Player _target;
-        private bool _active;
+        private Peer _target;
+        private NpcResponse _response;
+        private bool _active, _sampled;
+        private float _sampleAt, _capacityTraceAt;
+        private Vector3 _localPosition;
+        private int _capacityDrops;
+        private bool _faulted;
+        private long _ticks, _elapsed, _maximum;
+        private int _captures, _samples;
+        private float _summaryAt;
         public int Version => _memory.Version;
         public float ReadyAt => _memory.ReadyAt;
         public float ExpiresAt => _memory.ExpiresAt;
         public bool Pending => _memory.Pending;
+        public VoiceIntent Intent => NpcDialogueRules.Intent(_response);
+        public int Priority => NpcDialogueRules.Priority(_response);
+        public EPhraseTrigger ReplyPhrase => Output(_response);
 
         public NpcReplyObserver(Player local, FikaBridge fika, Func<string, float, bool> knownHostile, Action<string> trace)
-        { _local = local; _fika = fika; _knownHostile = knownHostile; _trace = trace; }
-
-        public void Active(bool active) { if (!active) Pause(); else _active = true; }
-        private bool Available(Player player) => player != null && player != _local && !player.IsYourPlayer
-            && player.GameWorld == _local.GameWorld && player.gameObject.activeInHierarchy
-            && player.HealthController?.IsAlive == true && !_fika.Downed(player);
+        {
+            _local = local; _fika = fika; _knownHostile = knownHostile; _trace = trace;
+            for (int i = 0; i < _peers.Length; i++) { _peers[i] = new Peer(); _probes[i] = new Probe(); }
+        }
+        public void Active(bool active) { if (!active) Pause(); else _active = !_faulted; }
+        private bool Present(Player player) => player != null && player != _local && !player.IsYourPlayer
+            && player.GameWorld == _local.GameWorld && player.gameObject.activeInHierarchy && player.HealthController != null;
+        private bool Available(Player player) => Present(player) && player.HealthController.IsAlive && !_fika.Downed(player);
         private float Distance(Player player) => Vector3.Distance(_local.Transform.position, player.Transform.position);
-        private bool Hostile(Player player, float now)
+        private NpcRelation Relation(Player player, float now)
         {
             WildSpawnType? role = player.Profile?.Info?.Settings?.Role;
             bool scav = role == WildSpawnType.assault || role == WildSpawnType.cursedAssault || role == WildSpawnType.marksman;
-            return NpcReplyRules.Hostile(ViewProbe.IsAlly(_local, player), _knownHostile(player.ProfileId, now),
+            return NpcDialogueRules.Relationship(ViewProbe.IsAlly(_local, player), _knownHostile(player.ProfileId, now),
                 _local.Side == EPlayerSide.Usec || _local.Side == EPlayerSide.Bear,
                 player.Side == EPlayerSide.Usec || player.Side == EPlayerSide.Bear, scav);
         }
-        // Each candidate bank is indexed once by NetId. No player roster, bank
-        // scan, audio decoding, sound simulation or raycast is needed.
-        private static EPhraseTrigger Identify(BaseSpeaker speaker, TaggedClip clip)
+        private static EPhraseTrigger Identify(Player player, TaggedClip clip)
         {
-            if (speaker == null || clip == null || clip.NetId < 0) return EPhraseTrigger.None;
-            foreach (EPhraseTrigger phrase in Inputs)
-                if (speaker.PhrasesBanks.TryGetValue(phrase, out var bank) && bank?.Clips != null
-                    && clip.NetId < bank.Clips.Length && ReferenceEquals(bank.Clips[clip.NetId], clip)) return phrase;
-            return EPhraseTrigger.None;
+            EPhraseTrigger actual = SpeechObservation.Phrase(player, clip);
+            if (actual != EPhraseTrigger.None) return actual;
+            // Compatibility for third-party playback outside OnPhraseTold. At most
+            // one indexed lookup per enum, never a scan of the banks' clip arrays.
+            if (player.Speaker == null || clip.NetId < 0) return EPhraseTrigger.None;
+            EPhraseTrigger found = EPhraseTrigger.None;
+            foreach (EPhraseTrigger phrase in Phrases)
+                if (player.Speaker.PhrasesBanks.TryGetValue(phrase, out var bank) && bank?.Clips != null
+                    && clip.NetId < bank.Clips.Length && ReferenceEquals(bank.Clips[clip.NetId], clip))
+                {
+                    if (found != EPhraseTrigger.None && Meaning(found) != Meaning(phrase)) return EPhraseTrigger.None;
+                    found = phrase;
+                }
+            return found;
         }
         public void Capture(Player player, TaggedClip clip, BetterSource source)
         {
-            if (!_active || !Available(player) || clip?.Clip == null || source == null
+            if (!_active || !Present(player) || clip?.Clip == null || source == null
                 || !(clip.Length > NpcReplyRules.ProbeDelay) || !(clip.Length <= 30f)
                 || Distance(player) > NpcReplyRules.Range) return;
-            bool ally = ViewProbe.IsAlly(_local, player);
-            if (!player.IsAI && !ally || player.IsAI && ally) return;
-            EPhraseTrigger phrase = Identify(player.Speaker, clip);
-            if (phrase == EPhraseTrigger.None || !player.IsAI && phrase != EPhraseTrigger.OnFight) return;
-            if (_memory.Pending && player.IsAI && player != _target) return;
+            if (!player.IsAI && (!Available(player) || !ViewProbe.IsAlly(_local, player))) return;
+            EPhraseTrigger phrase = Identify(player, clip);
+            // Breathing is not dialogue and must not flood diagnostics or memory.
+            if (phrase == EPhraseTrigger.OnBreath) return;
+            if (!player.IsAI && (!Pending || PeerResponse(phrase) == NpcResponse.None)) return;
             int free = -1;
             for (int i = 0; i < _probes.Length; i++)
             {
-                if (_probes[i].Player == player) return;
+                if (_probes[i].Player == player) { free = i; break; }
                 if (_probes[i].Player == null && free < 0) free = i;
             }
-            if (free < 0) return;
-            Probe probe = _probes[free];
-            probe.Player = player; probe.Clip = clip; probe.Source = source; probe.Phrase = phrase; probe.Started = Time.time;
+            if (free < 0) { _capacityDrops++; return; }
+            Probe p = _probes[free];
+            p.Player = player; p.Clip = clip; p.Source = source; p.Phrase = phrase; p.Started = Time.time; _captures++;
         }
-
-        // Return true exactly once for a newly heard NPC exchange.
+        private Peer Remember(Player player, float now)
+        {
+            Peer free = null;
+            foreach (Peer peer in _peers)
+            {
+                if (peer.Player == player) return peer;
+                if (peer != _target && (peer.Player == null || now - peer.HeardAt > 95f)
+                    && (free == null || peer.HeardAt < free.HeardAt)) free = peer;
+            }
+            if (free == null) return null;
+            free.Bind(player, now); return free;
+        }
         public bool Tick(float now, BarkContext context, bool tracing)
         {
+            if (!_active || _faulted) return false;
+            long start = tracing ? Stopwatch.GetTimestamp() : 0;
+            try { return TickCore(now, context, tracing); }
+            catch (Exception ex)
+            {
+                Pause(); _faulted = true;
+                _trace("Event=NpcFault Reason=" + ex.GetType().Name);
+                return false;
+            }
+            finally
+            {
+                if (tracing)
+                {
+                    long elapsed = Stopwatch.GetTimestamp() - start;
+                    _ticks++; _elapsed += elapsed; _maximum = Math.Max(_maximum, elapsed);
+                    if (_ticks >= 100 && now >= _summaryAt)
+                    {
+                        _summaryAt = now + 60f;
+                        _trace(FormattableString.Invariant($"Event=NpcSummary Ticks={_ticks} Captures={_captures} Samples={_samples} MeanMs={_elapsed * 1000d / Stopwatch.Frequency / _ticks:F4} MaxMs={_maximum * 1000d / Stopwatch.Frequency:F4} Capacity={NpcDialogueRules.Capacity}"));
+                    }
+                }
+            }
+        }
+        private bool TickCore(float now, BarkContext context, bool tracing)
+        {
             if (!_active) return false;
-            if (_memory.Pending && !Valid(Version, now)) Cancel("NpcNoLongerAvailable", tracing);
-            bool offered = false;
+            if (Pending && !Valid(Version, now, context)) Cancel("NpcContextChanged", tracing);
             foreach (Probe p in _probes)
             {
                 if (p.Player == null || now < p.Started + NpcReplyRules.ProbeDelay) continue;
-                string reason = !Available(p.Player) ? "SpeakerUnavailable" : HearingReason(p);
-                bool npc = p.Player.IsAI;
-                if (reason == null && !npc)
+                string reason = !Present(p.Player) ? "SpeakerUnavailable" : HearingReason(p);
+                NpcRelation relation = Relation(p.Player, now);
+                if (reason == null && !p.Player.IsAI)
                 {
-                    bool pending = _memory.Pending;
-                    _memory.OtherReplied(now); _target = null;
-                    if (pending && tracing) _trace("Event=NpcReply Decision=Suppressed Reason=NearbyPlayerReplied");
-                }
-                else if (reason == null)
-                {
-                    reason = !Hostile(p.Player, now) ? "NoHostileEvidence"
-                        : p.Phrase == EPhraseTrigger.OnMutter && !_knownHostile(p.Player.ProfileId, now) ? "UnawareMutter"
-                        : context.Survival ? "SurvivalContext" : null;
-                    if (reason == null)
+                    if (Pending && p.Started >= _target.HeardAt
+                        && NpcDialogueRules.PeerAnswer(_response, PeerResponse(p.Phrase))
+                        && Vector3.Distance(p.Player.Transform.position, _target.Player.Transform.position) <= NpcReplyRules.Range)
                     {
-                        if (_memory.Pending && p.Player == _target) { _memory.HeardAgain(p.Started + p.Clip.Length); reason = "ReplyAlreadyPending"; }
-                        else
-                        {
-                            reason = _memory.Begin(now, p.Started + p.Clip.Length, Distance(p.Player), (float)_random.NextDouble());
-                            if (reason == null) { _target = p.Player; offered = true; }
-                        }
+                        Cancel("NearbyPlayerReplied", tracing); _memory.OtherReplied(now);
+                        foreach (Peer peer in _peers) peer.Open = false;
                     }
                 }
-                if (npc && tracing) _trace(FormattableString.Invariant($"Event=NpcHeard SourceVoice={p.Player.Speaker?.PlayerVoice} HeardPhrase={p.Phrase} Duration={p.Clip.Length:F2} Decision={(reason == null ? "Candidate" : "Suppressed")} Reason={reason ?? "AudibleHostileSpeech"} NpcEpisode={Version}"));
+                else if (p.Player.IsAI)
+                {
+                    if (reason == null)
+                    {
+                        Peer peer = Remember(p.Player, now);
+                        if (peer == null) { reason = "NpcCapacity"; _capacityDrops++; }
+                        else
+                        {
+                            // Keep an existing candidate's meaning and fixed deadline.
+                            peer.HeardAt = p.Started;
+                            if (peer == _target && Pending) { _memory.HeardAgain(p.Started + p.Clip.Length); reason = "ReplyAlreadyPending"; }
+                            else
+                            {
+                                peer.Line = Meaning(p.Phrase); peer.Phrase = p.Phrase;
+                                peer.End = p.Started + p.Clip.Length; peer.Expires = peer.End + 8f;
+                                Vector3 delta = _local.Transform.position - peer.Player.Transform.position;
+                                peer.Directed = delta.sqrMagnitude <= 225f && Math.Abs(delta.y) < 3f
+                                    && (delta.sqrMagnitude <= 36f || Vector3.Dot(peer.Player.LookDirection, delta.normalized) >= 0.25f || relation == NpcRelation.Ally);
+                                peer.LastReason = null; peer.Open = true;
+                                reason = "AudibleNpcSpeech";
+                            }
+                        }
+                    }
+                    if (tracing) _trace(FormattableString.Invariant($"Event=NpcHeard SourceVoice={p.Player.Speaker?.PlayerVoice} Role={p.Player.Profile?.Info?.Settings?.Role} Relation={relation} HeardPhrase={p.Phrase} Meaning={Meaning(p.Phrase)} Duration={p.Clip.Length:F2} Decision={(reason == "AudibleNpcSpeech" ? "Observed" : "Suppressed")} Reason={reason} NpcEpisode={Version}"));
+                }
                 p.Clear();
             }
-            return offered && _memory.Pending;
+            Sample(now);
+            Peer best = null; NpcResponse selected = NpcResponse.None;
+            foreach (Peer peer in _peers)
+            {
+                if (!peer.Open) continue;
+                if (now >= peer.Expires || !Available(peer.Player))
+                { peer.Open = false; Decision(peer, "Suppressed", "NpcOpportunityExpired", tracing); continue; }
+                NpcResponse response = Select(peer, now, context);
+                if (response == NpcResponse.None)
+                {
+                    string rejected = context.Survival ? "SurvivalContext" : peer.Line == NpcLine.Other ? "UnmappedNpcPhrase"
+                        : peer.Line == NpcLine.Pain || peer.Line == NpcLine.Death || peer.Line == NpcLine.Acknowledgement ? "NoReplyToThisMeaning"
+                        : !peer.Directed ? "NotAddressedNearby" : "AwaitMatchingContextOrAction";
+                    if (peer.LastReason != rejected) { Decision(peer, "Waiting", rejected, tracing); peer.LastReason = rejected; }
+                    if (rejected == "UnmappedNpcPhrase" || rejected == "NoReplyToThisMeaning") peer.Open = false;
+                    continue;
+                }
+                if (!peer.Turns.Available(now))
+                { peer.Open = false; Decision(peer, "Suppressed", "NpcTurnLimit", tracing); continue; }
+                if (best == null || NpcDialogueRules.Priority(response) > NpcDialogueRules.Priority(selected)
+                    || NpcDialogueRules.Priority(response) == NpcDialogueRules.Priority(selected) && Distance(peer.Player) < Distance(best.Player))
+                { best = peer; selected = response; }
+            }
+            if (tracing && _capacityDrops > 0 && now >= _capacityTraceAt)
+            { _trace($"Event=NpcCapacity Dropped={_capacityDrops} Capacity={NpcDialogueRules.Capacity}"); _capacityDrops = 0; _capacityTraceAt = now + 30f; }
+            if (best == null || Pending && NpcDialogueRules.Priority(selected) <= Priority) return false;
+            bool replace = Pending;
+            if (replace) Cancel("HigherPriorityNpcSpeech", tracing, replace: true);
+            string blocked = _memory.Begin(now, best.End, Distance(best.Player), (float)_random.NextDouble());
+            best.Open = false;
+            if (blocked != null) { Decision(best, "Suppressed", blocked, tracing); return false; }
+            _target = best; _response = selected;
+            Decision(best, "Candidate", selected.ToString(), tracing);
+            return true;
+        }
+        private void Decision(Peer peer, string decision, string reason, bool tracing)
+        {
+            if (tracing) _trace($"Event=NpcDecision NpcEpisode={Version} HeardPhrase={peer.Phrase} Meaning={peer.Line} Decision={decision} Reason={reason} Turns={peer.Turns.Replies}");
+        }
+        private NpcResponse Select(Peer peer, float now, BarkContext context)
+        {
+            Vector3 delta = _local.Transform.position - peer.Player.Transform.position;
+            float distance = delta.magnitude;
+            bool directed = peer.Directed && distance <= 15f && Math.Abs(delta.y) < 3f;
+            return NpcDialogueRules.Select(peer.Line, Relation(peer.Player, now), context.Combat == CombatPhase.Engaged,
+                context.Survival, directed, distance <= 6f, peer.Actions);
+        }
+        private static bool Stable(ref float since, bool fits, float now)
+        {
+            if (!fits) { since = -1; return false; }
+            if (since < 0) since = now;
+            return now - since >= 0.75f;
+        }
+        private void Sample(float now)
+        {
+            if (_sampled && now - _sampleAt < 0.25f) return;
+            _samples++;
+            Vector3 position = _local.Transform.position;
+            float dt = now - _sampleAt;
+            Vector3 move = position - _localPosition; move.y = 0f;
+            bool fresh = _sampled && dt > 0f && dt <= 1f && move.sqrMagnitude < 100f;
+            bool moving = fresh && move.magnitude / dt > 0.35f;
+            foreach (Peer peer in _peers)
+            {
+                if (peer.Player == null || !Available(peer.Player) || now - peer.HeardAt > 12f) continue;
+                Vector3 at = peer.Player.Transform.position, delta = at - position, other = at - peer.Position;
+                float elapsed = now - peer.SampleAt;
+                other.y = 0f;
+                bool near = delta.sqrMagnitude <= 225f && Math.Abs(delta.y) < 3f;
+                bool otherMoving = elapsed > 0 && elapsed <= 1f && other.magnitude / elapsed > 0.35f && other.sqrMagnitude < 100f;
+                Vector3 facing = peer.Player.LookDirection; facing.y = 0f;
+                peer.Actions = new NpcActions {
+                    Following = Stable(ref peer.FollowSince, near && moving && otherMoving && Vector3.Dot(move.normalized, other.normalized) > 0.6f && Vector3.Dot(delta.normalized, other.normalized) > 0.2f, now),
+                    Approaching = Stable(ref peer.ApproachSince, near && moving && delta.sqrMagnitude > 4f && Vector3.Dot(move.normalized, delta.normalized) > 0.6f, now),
+                    Advancing = Stable(ref peer.AdvanceSince, near && moving && Vector3.Dot(move.normalized, facing.normalized) > 0.6f, now),
+                    Retreating = Stable(ref peer.RetreatSince, near && moving && Vector3.Dot(move.normalized, facing.normalized) < -0.6f, now),
+                    Holding = Stable(ref peer.HoldSince, near && fresh && !moving, now),
+                    Covering = near && now < peer.CoverUntil
+                };
+                peer.Position = at; peer.SampleAt = now;
+            }
+            _localPosition = position; _sampleAt = now; _sampled = true;
+        }
+        public void Hit(Player victim, DamageInfo info, bool witnessed)
+        {
+            if (!_active || !witnessed || info.Damage <= 0 || !VoiceDirector.IsCombatDamage(info.DamageType)) return;
+            IPlayer attacker = info.Player?.iPlayer;
+            if (attacker == null || attacker.ProfileId == _local.ProfileId || ViewProbe.IsAlly(_local, attacker)) return;
+            if (!Available(victim) || !victim.IsAI || Distance(victim) > NpcReplyRules.Range
+                || Relation(victim, Time.time) == NpcRelation.Hostile) return;
+            // The hit can precede the first request for help. Reuse the director's
+            // witnessed victim instead of requiring an earlier voice callback.
+            Peer peer = Remember(victim, Time.time);
+            if (peer != null) { peer.Attacker = attacker.ProfileId; peer.HitAt = Time.time; }
+        }
+        public void Shot(float now, VisibleContact target)
+        {
+            if (!_active || target == null || !target.Alive || target.Ally) return;
+            foreach (Peer peer in _peers)
+                if (peer.Player != null && now - peer.HitAt <= 8f && peer.Attacker == target.Id)
+                    peer.CoverUntil = now + 3.5f;
         }
         private string HearingReason(Probe p)
         {
@@ -124,19 +316,60 @@ namespace ImmersiveVoice
                 Distance(p.Player), Math.Min(p.Clip.Falloff, p.Source.MaxDistance), p.Source.OcclusionRolloffScale,
                 p.Clip.Volume, p.Source.OcclusionVolumeFactor, p.Source.FadeFactor);
         }
-        public bool Valid(int version, float now) => _active && _memory.Valid(version, now) && Available(_target)
-            && _target.IsAI && Hostile(_target, now) && Distance(_target) <= NpcReplyRules.Range;
+        public bool Valid(int version, float now, BarkContext context) => _active && _memory.Valid(version, now)
+            && _target != null && Available(_target.Player) && _target.Player.IsAI && Distance(_target.Player) <= NpcReplyRules.Range
+            && Select(_target, now, context) == _response;
         public string Waiting(float now) => _memory.Waiting(now);
-        public void Spoken(float now, float cooldown) { _memory.Spoken(now, cooldown); _target = null; }
-        public void Cancel(string reason, bool tracing)
+        public void Spoken(float now, float cooldown)
         {
-            if (tracing && _memory.Pending) _trace($"Event=NpcReply Decision=Suppressed Reason={reason} NpcEpisode={Version}");
-            _memory.Cancel(); _target = null;
+            _target?.Turns.Spoken(now); _memory.Spoken(now, cooldown); _target = null;
+            foreach (Peer peer in _peers) peer.Open = false;
+        }
+        public void Cancel(string reason, bool tracing, bool replace = false)
+        {
+            if (tracing && Pending) _trace($"Event=NpcReply Decision=Suppressed Reason={reason} NpcEpisode={Version}");
+            if (replace) _memory.Supersede(); else _memory.Cancel();
+            _target = null;
         }
         public void Pause()
         {
-            _active = false; _memory.Cancel(); _target = null;
+            _active = false; _memory.Cancel(); _target = null; _sampled = false;
             foreach (Probe p in _probes) p.Clear();
+            foreach (Peer peer in _peers) { peer.Open = false; peer.Actions = default; }
+        }
+        internal static EPhraseTrigger Output(NpcResponse response)
+            => response == NpcResponse.Retort ? EPhraseTrigger.OnFight : response == NpcResponse.Noise ? EPhraseTrigger.NoisePhrase
+                : response == NpcResponse.Mutter ? EPhraseTrigger.OnMutter : response == NpcResponse.Following ? EPhraseTrigger.Going
+                : response == NpcResponse.Covering ? EPhraseTrigger.Covering : EPhraseTrigger.Roger;
+        private static NpcResponse PeerResponse(EPhraseTrigger phrase)
+            => phrase == EPhraseTrigger.OnFight ? NpcResponse.Retort : phrase == EPhraseTrigger.NoisePhrase ? NpcResponse.Noise
+                : phrase == EPhraseTrigger.OnMutter ? NpcResponse.Mutter : phrase == EPhraseTrigger.Going ? NpcResponse.Following
+                : phrase == EPhraseTrigger.Covering ? NpcResponse.Covering : phrase == EPhraseTrigger.Roger ? NpcResponse.Acknowledge : NpcResponse.None;
+        internal static NpcLine Meaning(EPhraseTrigger phrase)
+        {
+            switch (phrase)
+            {
+                case EPhraseTrigger.OnFight: case EPhraseTrigger.Toxic: case EPhraseTrigger.Provocation: case EPhraseTrigger.Rat: return NpcLine.Taunt;
+                case EPhraseTrigger.OnFirstContact: case EPhraseTrigger.OnRepeatedContact: case EPhraseTrigger.OnEnemyConversation: return NpcLine.Combat;
+                case EPhraseTrigger.OnMutter: return NpcLine.Mutter;
+                case EPhraseTrigger.OnWeaponReload: case EPhraseTrigger.OnOutOfAmmo: case EPhraseTrigger.NeedAmmo:
+                case EPhraseTrigger.OnWeaponJammed: case EPhraseTrigger.WeaponBroken: return NpcLine.Reload;
+                case EPhraseTrigger.NeedHelp: case EPhraseTrigger.NeedMedkit: return NpcLine.Help;
+                case EPhraseTrigger.FollowMe: return NpcLine.Follow;
+                case EPhraseTrigger.CoverMe: return NpcLine.Cover;
+                case EPhraseTrigger.GoForward: case EPhraseTrigger.Gogogo: return NpcLine.Advance;
+                case EPhraseTrigger.GetBack: return NpcLine.Retreat;
+                case EPhraseTrigger.Stop: case EPhraseTrigger.HoldPosition: return NpcLine.Hold;
+                case EPhraseTrigger.Regroup: return NpcLine.Regroup;
+                case EPhraseTrigger.Cooperation: return NpcLine.Cooperation;
+                case EPhraseTrigger.OnEnemyGrenade: case EPhraseTrigger.OnGrenade: case EPhraseTrigger.Warning: return NpcLine.Warning;
+                case EPhraseTrigger.OnBeingHurt: case EPhraseTrigger.OnAgony: case EPhraseTrigger.OnBeingHurtDissapoinment:
+                case EPhraseTrigger.HurtLight: case EPhraseTrigger.HurtMedium: case EPhraseTrigger.HurtHeavy: case EPhraseTrigger.HurtNearDeath: return NpcLine.Pain;
+                case EPhraseTrigger.OnDeath: return NpcLine.Death;
+                case EPhraseTrigger.OnBreath: return NpcLine.Breath;
+                case EPhraseTrigger.Roger: case EPhraseTrigger.Going: case EPhraseTrigger.Covering: case EPhraseTrigger.GoodWork: case EPhraseTrigger.OnGoodWork: return NpcLine.Acknowledgement;
+                default: return NpcLine.Other;
+            }
         }
     }
 }

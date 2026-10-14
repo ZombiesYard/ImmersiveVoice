@@ -47,6 +47,7 @@ def diagnostics(sessions, fields, timeline):
         "playback_results": collections.Counter(), "playback_compatibility": collections.Counter(),
         "treatment_actions": collections.Counter(), "squad_hit_rejections": collections.Counter(),
         "npc_heard_phrases": collections.Counter(), "npc_hearing_decisions": collections.Counter(),
+        "npc_relations": collections.Counter(), "npc_dialogue_decisions": collections.Counter(), "npc_performance": {},
     })
     event, decision, reason = fields.get("Event"), fields.get("Decision"), fields.get("Reason")
     for key in ("Version", "Mode", "Voice"):
@@ -90,6 +91,11 @@ def diagnostics(sessions, fields, timeline):
     elif event == "NpcHeard":
         session["npc_heard_phrases"][fields.get("HeardPhrase", "Unknown")] += 1
         session["npc_hearing_decisions"][reason or "Unknown"] += 1
+        session["npc_relations"][fields.get("Relation", "Unknown")] += 1
+    elif event == "NpcDecision":
+        session["npc_dialogue_decisions"][reason or "Unknown"] += 1
+    elif event == "NpcSummary":
+        session["npc_performance"] = {key: number(fields.get(key)) for key in ("Ticks", "Captures", "Samples", "MeanMs", "MaxMs", "Capacity")}
     request_id = fields.get("Request")
     if request_id and request_id.isdigit() and request_id != "0":
         request = session["requests"].setdefault(request_id, {"intent": None, "phrase": None, "last_decision": None, "last_reason": None})

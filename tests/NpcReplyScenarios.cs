@@ -68,5 +68,82 @@ internal static class NpcReplyScenarios
             == "RecentSemanticIntent", "NPC replies share repetition memory with combat taunts");
         policy.Manual(25, 12);
         check(policy.BlockReason(cue, 26) == "ManualPriority", "manual speech always suppresses an automatic NPC retort");
+
+        check(NpcDialogueRules.Relationship(false, false, false, false, true) == NpcRelation.Neutral
+            && NpcDialogueRules.Relationship(false, true, false, false, true) == NpcRelation.Hostile,
+            "a peaceful Scav becomes a hostile conversational target after an observed attack");
+        check(NpcDialogueRules.Relationship(false, false, true, false, false) == NpcRelation.Unknown,
+            "a special NPC is not declared hostile merely by its role");
+        NpcResponse Reply(NpcLine line, NpcRelation relation, bool engaged = false, bool directed = true,
+            bool close = true, NpcActions actions = default)
+            => NpcDialogueRules.Select(line, relation, engaged, false, directed, close, actions);
+        check(Reply(NpcLine.Taunt, NpcRelation.Unknown) == NpcResponse.Retort,
+            "an audible nearby directed challenge from a special NPC can receive a retort");
+        check(Reply(NpcLine.Taunt, NpcRelation.Unknown, directed: false) == NpcResponse.Noise,
+            "an uncertain distant speaker produces a noise observation instead of a direct challenge");
+        check(Reply(NpcLine.Taunt, NpcRelation.Neutral) == NpcResponse.None
+            && Reply(NpcLine.Combat, NpcRelation.Ally) == NpcResponse.None,
+            "friendly combat shouts do not turn into insults or false acknowledgements");
+        check(Reply(NpcLine.Mutter, NpcRelation.Hostile) == NpcResponse.Noise
+            && Reply(NpcLine.Mutter, NpcRelation.Hostile, engaged: true) == NpcResponse.Retort,
+            "overheard enemy chatter and active combat have different meanings");
+        check(Reply(NpcLine.Reload, NpcRelation.Hostile, engaged: true) == NpcResponse.Retort
+            && Reply(NpcLine.Help, NpcRelation.Hostile, engaged: true) == NpcResponse.Retort,
+            "enemy reload and help speech can motivate a combat response without inventing a reload callout");
+        check(Reply(NpcLine.Mutter, NpcRelation.Neutral) == NpcResponse.Mutter
+            && Reply(NpcLine.Mutter, NpcRelation.Neutral, engaged: true) == NpcResponse.None
+            && Reply(NpcLine.Mutter, NpcRelation.Neutral, close: false) == NpcResponse.None,
+            "neutral muttering is limited to a close calm exchange");
+        check(Reply(NpcLine.Follow, NpcRelation.Ally) == NpcResponse.None
+            && Reply(NpcLine.Follow, NpcRelation.Ally, actions: new NpcActions { Following = true }) == NpcResponse.Following,
+            "a friendly follow request waits for sustained matching motion");
+        check(Reply(NpcLine.Cover, NpcRelation.Neutral) == NpcResponse.None
+            && Reply(NpcLine.Cover, NpcRelation.Neutral, actions: new NpcActions { Covering = true }) == NpcResponse.Covering,
+            "cover replies require firing at the witnessed attacker, not merely hearing a request");
+        check(Reply(NpcLine.Advance, NpcRelation.Ally, actions: new NpcActions { Advancing = true }) == NpcResponse.Acknowledge
+            && Reply(NpcLine.Retreat, NpcRelation.Ally, actions: new NpcActions { Retreating = true }) == NpcResponse.Acknowledge,
+            "advance and retreat requests acknowledge matching movement");
+        check(Reply(NpcLine.Hold, NpcRelation.Ally, actions: new NpcActions { Holding = true }) == NpcResponse.Acknowledge
+            && Reply(NpcLine.Regroup, NpcRelation.Neutral, actions: new NpcActions { Approaching = true }) == NpcResponse.Acknowledge,
+            "holding and regrouping can respond after observable action");
+        check(Reply(NpcLine.Cooperation, NpcRelation.Neutral, actions: new NpcActions { Holding = true }) == NpcResponse.Acknowledge
+            && Reply(NpcLine.Cooperation, NpcRelation.Neutral, close: false, actions: new NpcActions { Holding = true }) == NpcResponse.None,
+            "a neutral cooperation request needs nearby presence or an approach");
+        check(Reply(NpcLine.Warning, NpcRelation.Ally) == NpcResponse.Acknowledge,
+            "hearing a friendly warning acknowledges it without inventing visual grenade evidence");
+        foreach (NpcLine line in Enum.GetValues(typeof(NpcLine)))
+        foreach (NpcRelation relation in Enum.GetValues(typeof(NpcRelation)))
+            check(NpcDialogueRules.Select(line, relation, true, true, true, true,
+                new NpcActions { Following = true, Covering = true }) == NpcResponse.None,
+                "survival suppresses NPC dialogue: " + line + "/" + relation);
+        foreach (var line in new[] { NpcLine.Breath, NpcLine.Pain, NpcLine.Death, NpcLine.Other, NpcLine.Acknowledgement })
+        foreach (NpcRelation relation in Enum.GetValues(typeof(NpcRelation)))
+            check(Reply(line, relation, engaged: true) == NpcResponse.None,
+                "non-dialogue or answer-only speech cannot start a reply loop: " + line + "/" + relation);
+        var turns = new NpcTurnMemory();
+        turns.Spoken(10); turns.Spoken(40);
+        check(!turns.Available(80) && turns.Replies == 2 && turns.Available(100),
+            "two successful replies close a fixed ninety-second NPC window");
+        turns.Spoken(100);
+        check(turns.Replies == 1 && turns.Available(101), "a new encounter window renews only after the old window ends");
+        check(NpcDialogueRules.PeerAnswer(NpcResponse.Covering, NpcResponse.Covering)
+            && !NpcDialogueRules.PeerAnswer(NpcResponse.Covering, NpcResponse.Retort),
+            "unrelated teammate taunts cannot swallow a friendly covering response");
+        check(NpcDialogueRules.Priority(NpcResponse.Covering) > NpcDialogueRules.Priority(NpcResponse.Mutter)
+            && NpcDialogueRules.Priority(NpcResponse.Retort) > NpcDialogueRules.Priority(NpcResponse.Mutter),
+            "combat or coordination replies can supersede a pending calm mutter");
+        var replacement = new NpcReplyMemory(); replacement.Begin(10, 12, 1, 0); replacement.Supersede();
+        check(replacement.Begin(11, 13, 1, 0) == null, "higher-priority dialogue is not lost to its replaced candidate's admission throttle");
+        context = new BarkContext { Injury = InjuryLevel.Healthy };
+        foreach (var intent in new[] { VoiceIntent.NpcNoise, VoiceIntent.NpcMutter, VoiceIntent.NpcFollowing, VoiceIntent.NpcCovering, VoiceIntent.NpcAcknowledge })
+        {
+            context.Healing = false;
+            check(SemanticVoice.StillValid(intent, context, 0), "healthy dialogue allowed: " + intent);
+            context.Healing = true;
+            check(!SemanticVoice.StillValid(intent, context, 0), "treatment cancels all delayed NPC meanings: " + intent);
+        }
+        check(SemanticVoice.HistoryKey(VoiceIntent.NpcFollowing) == VoiceIntent.TeamFollowing
+            && SemanticVoice.HistoryKey(VoiceIntent.NpcMutter) == VoiceIntent.CalmMutter,
+            "NPC output shares semantic history with existing equivalent player speech");
     }
 }

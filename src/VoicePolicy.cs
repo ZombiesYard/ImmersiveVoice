@@ -76,7 +76,7 @@ namespace ImmersiveVoice
             float speechEnd = PlaybackRules.EventVoice(cue) ? Math.Min(_speechEnd, _breathYieldAt) : _speechEnd;
             if (now < speechEnd + 0.4f) return "SpeechPlaying";
             if (now < _retryAt) return "PlaybackBackoff";
-            if (!cue.Urgent && !VisualRules.TacticalReport(cue.Intent) && cue.Intent != VoiceIntent.NpcRetort
+            if (!cue.Urgent && !VisualRules.TacticalReport(cue.Intent) && !SemanticVoice.NpcExchange(cue.Intent)
                 && now < _normalAt) return "GlobalGap";
             bool escalation = HealthEscalation(cue, now);
             if (!escalation && !Ready(_keys, cue.Key, now)) return "RecentSubject";

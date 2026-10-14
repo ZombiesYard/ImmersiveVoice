@@ -8,7 +8,7 @@ namespace ImmersiveVoice
         Contact, LostVisual, KillConfirm, TacticalEnemyDown, KillTaunt,
         Recovery, Acknowledge, CombatBark, CalmMutter, NativeContext,
         RepeatedContact, Bleeding, ArmFracture, LegFracture, MedicalRequest, TeamFollowing, TeamCovering, TeamAdvance, TeamRetreat,
-        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, NpcRetort
+        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, NpcRetort, NpcNoise, NpcMutter, NpcAcknowledge, NpcFollowing, NpcCovering
     }
 
     internal enum VoiceMode { Solo, FikaHost, FikaClient }
@@ -112,7 +112,7 @@ namespace ImmersiveVoice
             if (intent == VoiceIntent.Silent) return "SilentIntent";
             if (intent == VoiceIntent.TacticalEnemyDown && context.DamageVersion != damageVersion)
                 return "DamageAfterRequest";
-            bool emotional = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.CombatBark || intent == VoiceIntent.NpcRetort;
+            bool emotional = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.CombatBark || NpcExchange(intent);
             if (emotional || intent == VoiceIntent.KillConfirm || intent == VoiceIntent.TacticalEnemyDown)
             {
                 if (context.Injury >= InjuryLevel.BadlyInjured) return "SevereInjury";
@@ -130,8 +130,15 @@ namespace ImmersiveVoice
             return null;
         }
 
+        public static bool NpcExchange(VoiceIntent intent) => intent == VoiceIntent.NpcRetort || intent == VoiceIntent.NpcNoise
+            || intent == VoiceIntent.NpcMutter || intent == VoiceIntent.NpcAcknowledge || intent == VoiceIntent.NpcFollowing || intent == VoiceIntent.NpcCovering;
+
         public static VoiceIntent HistoryKey(VoiceIntent intent)
             => intent == VoiceIntent.KillTaunt || intent == VoiceIntent.NpcRetort ? VoiceIntent.CombatBark
+                : intent == VoiceIntent.NpcMutter ? VoiceIntent.CalmMutter
+                : intent == VoiceIntent.NpcAcknowledge ? VoiceIntent.Acknowledge
+                : intent == VoiceIntent.NpcFollowing ? VoiceIntent.TeamFollowing
+                : intent == VoiceIntent.NpcCovering ? VoiceIntent.TeamCovering
                 : intent == VoiceIntent.RepeatedContact ? VoiceIntent.Contact : intent;
     }
 }

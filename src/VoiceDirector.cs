@@ -118,7 +118,12 @@ namespace ImmersiveVoice
             && (cue.Intent != VoiceIntent.NativeContext || HealthMeaning((EPhraseTrigger)cue.Phrase) != HealthCue.None);
         public bool OthersSpeaking(float now) => _squad.OthersSpeaking(now);
         private bool CoverWeaponReady => _gun != null && !_reload && !WeaponFaulty;
-        public void ObservedHit(Player victim, DamageInfo info) { if (Collect) _squad.Hit(victim, info); }
+        public void ObservedHit(Player victim, DamageInfo info)
+        {
+            if (!Collect) return;
+            _squad.Hit(victim, info);
+            _npc.Hit(victim, info, _gaze?.Player == victim && Time.time - _lastVision < 0.6f);
+        }
         public void ObserveSpeech(Player speaker, TaggedClip clip, BetterSource source)
         {
             if (Collect && Directing && _settings.NpcReplies.Value) _npc.Capture(speaker, clip, source);
@@ -166,9 +171,9 @@ namespace ImmersiveVoice
             if (_npc.Tick(now, Context, Tracing))
             {
                 _queue.RemoveKind(ReactionKind.NpcReply, "NewNpcExchange");
-                Offer(ReactionKind.NpcReply, "npc-reply", SemanticVoice.TauntPriority,
+                Offer(ReactionKind.NpcReply, "npc-reply", _npc.Priority,
                     _npc.ReadyAt - now, _npc.ExpiresAt - now, _settings.NpcReplyCooldown.Value,
-                    null, EPhraseTrigger.OnFight, VoiceIntent.NpcRetort, npcEpisode: _npc.Version);
+                    null, _npc.ReplyPhrase, _npc.Intent, npcEpisode: _npc.Version);
             }
             _healthSpeech.Observe(now, Context);
             FlushDamage(now);
@@ -470,6 +475,7 @@ namespace ImmersiveVoice
                 bool justKilled = target != null && !target.Alive && _gaze != null && _gaze.Alive && !_gaze.Ally
                     && target.Id == _gaze.Id && now - _lastVision <= 0.25f;
                 _squad.Shot(now, target);
+                _npc.Shot(now, target);
                 _combat.Shot(now, visible || justKilled, _memory.RecentLivingThreat(now, 8f));
                 if (_combat.Active(now)) CancelTreatment("CombatResumed");
                 if (visible || justKilled)
@@ -626,7 +632,8 @@ namespace ImmersiveVoice
                 FriendlyDamage = friendlyDamage,
                 Cue = new VoiceCue { RequestId = requestId == 0 ? _journal.Request() : requestId, Phrase = (int)phrase, Key = group + ":" + (subject ?? phrase.ToString()), Group = group,
                     Urgent = priority >= 82, Repeat = repeat, GroupGap = repeat, Intent = intent,
-                    SemanticRepeat = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.NpcRetort ? _settings.CombatMin.Value : 0f } };
+                    SemanticRepeat = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.NpcRetort ? _settings.CombatMin.Value
+                        : intent == VoiceIntent.NpcMutter ? 60f : SemanticVoice.NpcExchange(intent) ? 15f : 0f } };
             _generated[(int)kind]++;
             if (intent == VoiceIntent.Silent) { Dropped(reaction, kind == ReactionKind.Reload ? "ReloadProbability" : "ContextPolicy"); return; }
             if (group == "health")
@@ -721,7 +728,7 @@ namespace ImmersiveVoice
                 case ReactionKind.Squad: return ValidSquad(r);
                 case ReactionKind.FriendlyDown: return !Context.Survival && _squad.Valid(r.Loss, Time.time);
                 case ReactionKind.NpcReply:
-                    r.InvalidReason = _settings.NpcReplies.Value && _npc.Valid(r.NpcEpisode, Time.time)
+                    r.InvalidReason = _settings.NpcReplies.Value && _npc.Valid(r.NpcEpisode, Time.time, Context)
                         ? null : "NpcExchangeEnded";
                     return r.InvalidReason == null;
                 default: return false;
@@ -781,6 +788,7 @@ namespace ImmersiveVoice
             if (reaction.Kind == ReactionKind.MedicalRequest && !ValidMedicalRequest(reaction, fresh: true)) return false;
             if (reaction.Kind == ReactionKind.AfterTreatment && !ValidAfterTreatment(reaction)) return false;
             if (reaction.Kind == ReactionKind.Squad && !ValidSquad(reaction)) return false;
+            if (reaction.Kind == ReactionKind.NpcReply && !Valid(reaction)) return false;
             if (reaction.Cue.Intent == VoiceIntent.KillTaunt && !_settings.Combat.Value)
             {
                 reaction.InvalidReason = "CombatDisabled";
@@ -825,7 +833,7 @@ namespace ImmersiveVoice
             if (cue.Group == "reload") _reloadDecision.Spoken();
             if (cue.Group == "malfunction") _malfunctions.Begin(WeaponId, WeaponFaulty);
             if (cue.Group == "medical-request") _medicalRequest.Spoken();
-            if (cue.Intent == VoiceIntent.NpcRetort) _npc.Spoken(Time.time, _settings.NpcReplyCooldown.Value);
+            if (SemanticVoice.NpcExchange(cue.Intent)) _npc.Spoken(Time.time, _settings.NpcReplyCooldown.Value);
             if ((cue.Group == "team-coordination" || cue.Group == "team-response" || cue.Group == "team-retreat" || cue.Group == "team-request")
                 && !automatic) _squad.Pause(Time.time, manual: true);
             _queue.RemoveGroup(cue.Group, automatic ? "SpeechObserved" : "NativeOrManualSpeech");

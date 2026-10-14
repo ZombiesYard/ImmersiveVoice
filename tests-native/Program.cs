@@ -122,4 +122,22 @@ Check(log.Warnings == warnings + 1 && playerFixture.PlayCount == 4,
     "observer failure is isolated and logged once without blocking native playback");
 SpeechObservation.Played -= badListener;
 harmony.UnpatchSelf();
+
+Chainloader.PluginInfos["com.fika.core"] = new PluginInfo { Instance = new Fika.Core.Main.Players.FikaPlayer() };
+SpeechObservation.Install(harmony, log);
+EPhraseTrigger observedPhrase = EPhraseTrigger.None;
+Action<Player, TaggedClip, BetterSource> exactListener = (p, c, source) => observedPhrase = SpeechObservation.Phrase(p, c);
+SpeechObservation.Played += exactListener;
+foreach (Player source in new Player[] { new Player(), new Fika.Core.Main.Players.FikaPlayer(), new Fika.Core.Main.Players.ObservedPlayer() })
+{
+    source.OnPhraseTold(EPhraseTrigger.OnMutter, speechClip, new TagBank(), new BaseSpeaker());
+    Check(observedPhrase == EPhraseTrigger.OnMutter && source.PlayCount == 1,
+        "native and Fika paths retain the exact transmitted trigger through audio playback");
+    Check(SpeechObservation.Phrase(source, speechClip) == EPhraseTrigger.None,
+        "nested native/Fika phrase scopes restore after each call");
+    source.PlayPhraseClip(speechClip);
+    Check(observedPhrase == EPhraseTrigger.None, "direct third-party playback never inherits a stale phrase");
+}
+SpeechObservation.Played -= exactListener;
+harmony.UnpatchSelf();
 Console.WriteLine("SUCCESS: " + count + " real-Harmony checks with fixtures; no Unity audio or network test.");

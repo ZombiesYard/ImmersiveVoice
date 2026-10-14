@@ -17,6 +17,9 @@ namespace EFT
         public BetterSource Source => _speechSource;
         [MethodImpl(MethodImplOptions.NoInlining)]
         public void PlayPhraseClip(TaggedClip clip) { PlayCount++; }
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public virtual void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, BaseSpeaker speaker)
+        { PlayPhraseClip(clip); }
     }
     public class BaseSpeaker
     {
@@ -62,5 +65,21 @@ namespace FemalePMCSoundPatch
         public static bool LocalSuppressTacticalCallouts(EPhraseTrigger trigger) => trigger != EPhraseTrigger.OnBreath;
         public static bool Prefix(EFT.BaseSpeaker __instance, EPhraseTrigger __0)
             => __instance != LocalSpeaker || !LocalSuppressTacticalCallouts(__0);
+    }
+}
+
+namespace Fika.Core.Main.Players
+{
+    public class FikaPlayer : EFT.Player
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public override void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, EFT.BaseSpeaker speaker)
+        { base.OnPhraseTold(phrase, clip, bank, speaker); }
+    }
+    public class ObservedPlayer : FikaPlayer
+    {
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public override void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, EFT.BaseSpeaker speaker)
+        { PlayPhraseClip(clip); }
     }
 }

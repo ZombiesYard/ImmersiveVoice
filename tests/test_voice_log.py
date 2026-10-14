@@ -13,6 +13,20 @@ spec.loader.exec_module(module)
 
 
 class VoiceLogTests(unittest.TestCase):
+    def test_npc_dialogue_relationships_and_bounded_work_are_reported(self):
+        report = module.summarize([
+            "[AutoVoice] Session=a Event=NpcHeard SourceVoice=Scav_1 Relation=Neutral HeardPhrase=FollowMe Decision=Observed Reason=AudibleNpcSpeech",
+            "[AutoVoice] Session=a Event=NpcDecision HeardPhrase=FollowMe Decision=Waiting Reason=AwaitMatchingContextOrAction",
+            "[AutoVoice] Session=a Event=NpcDecision HeardPhrase=FollowMe Decision=Candidate Reason=Following",
+            "[AutoVoice] Session=a Event=NpcSummary Ticks=100 Captures=5 Samples=40 MeanMs=0.01 MaxMs=0.05 Capacity=8",
+        ])
+        session = report["sessions"]["a"]
+        self.assertEqual(session["npc_relations"], {"Neutral": 1})
+        self.assertEqual(session["npc_dialogue_decisions"], {"AwaitMatchingContextOrAction": 1, "Following": 1})
+        self.assertEqual(session["npc_performance"]["Samples"], 40)
+        self.assertEqual(session["npc_performance"]["Capacity"], 8)
+        self.assertEqual(session["npc_performance"]["MeanMs"], 0.01)
+
     def test_npc_observations_are_not_counted_as_local_voice_plays(self):
         report = module.summarize([
             "[AutoVoice] Session=a Event=Settings NpcReplies=True NpcReplyCooldown=30.00",
