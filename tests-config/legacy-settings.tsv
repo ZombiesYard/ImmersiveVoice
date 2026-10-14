@@ -1,0 +1,37 @@
+# Synthetic compatibility baseline from 2.10.2; no personal config values.
+Enabled	01 General 常规	Enabled	bool	true	false		
+SilenceKey	01 General 常规	Silence toggle	key	Pause	F8		
+FocusOnly	01 General 常规	Only while focused	bool	true	false		
+Gap	01 General 常规	Minimum speech gap	float	8	22.830	1	60
+ManualPause	01 General 常规	Manual voice priority	float	12	45.660	2	120
+AutoContext	02 Auto Y 自动情境语音	Enabled	bool	true	false		
+ReactionMin	02 Auto Y 自动情境语音	Reaction minimum	float	0.55	1.913	0.1	5
+ReactionMax	02 Auto Y 自动情境语音	Reaction maximum	float	1.15	1.913	0.1	5
+Repeat	02 Auto Y 自动情境语音	Repeat cooldown	float	45	114.150	5	300
+Cooperation	02 Auto Y 自动情境语音	Allow cooperation	bool	true	false		
+ContextInStealth	02 Auto Y 自动情境语音	Allow context while sneaking	bool	false	true		
+Combat	03 Monologue 情境自言自语	Combat enabled	bool	true	false		
+CombatMin	03 Monologue 情境自言自语	Combat interval minimum	float	18	69.750	5	180
+CombatMax	03 Monologue 情境自言自语	Combat interval maximum	float	32	69.750	5	180
+CombatChance	03 Monologue 情境自言自语	Combat chance percent	float	65	37.000	0	100
+Idle	03 Monologue 情境自言自语	Calm enabled	bool	true	false		
+IdleMin	03 Monologue 情境自言自语	Calm interval minimum	float	90	231.450	15	600
+IdleMax	03 Monologue 情境自言自语	Calm interval maximum	float	180	231.450	15	600
+RespectStealth	03 Monologue 情境自言自语	Respect stealth	bool	true	false		
+Debug	04 Diagnostics 诊断	Debug logging	bool	false	true		
+Recording	04 Diagnostics 诊断	Diagnostic recording	bool	true	false		
+Director	05 Event director 事件语音	Enabled	bool	true	false		
+Visual	05 Event director 事件语音	Visible combat reactions	bool	true	false		
+DamageReactions	05 Event director 事件语音	Damage reactions	bool	true	false		
+Healing	05 Event director 事件语音	Healing reactions	bool	true	false		
+TeamReplies	05 Event director 事件语音	Nearby teammate replies	bool	true	false		
+SquadCoordination	05 Event director 事件语音	Squad coordination	bool	true	false		
+FriendlyDown	05 Event director 事件语音	Witnessed teammate death	bool	true	false		
+MedicalRequests	05 Event director 事件语音	Medical supply requests	bool	true	false		
+SightRange	05 Event director 事件语音	Visual range	float	60	43.300	10	100
+ReloadRepeat	05 Event director 事件语音	Reload cooldown	float	1	4.015	0.5	10
+CalmReloadChance	05 Event director 事件语音	Calm reload chance percent	float	50	37.000	0	100
+RecoveryReloadChance	05 Event director 事件语音	Post combat reload chance percent	float	65	37.000	0	100
+InjuryRepeat	05 Event director 事件语音	Injury cooldown	float	20	36.450	5	90
+ObjectRepeat	05 Event director 事件语音	Same object cooldown	float	60	117.300	10	300
+PostKillChance	05 Event director 事件语音	Post kill taunt chance percent	float	45	37.000	0	100

@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net472</TargetFramework>
+    <LangVersion>latest</LangVersion>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <NoStdLib>true</NoStdLib>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+    <NoWarn>$(NoWarn);CS0649</NoWarn>
+    <GameRoot Condition="'$(GameRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..</GameRoot>
+    <FrameworkRoot Condition="'$(FrameworkRoot)' == ''">$(SystemRoot)/Microsoft.NET/Framework64/v4.0.30319</FrameworkRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/NativePlayback.cs" Link="NativePlayback.cs" />
+    <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />
+    <Compile Include="../src/VoicePolicy.cs" Link="VoicePolicy.cs" />
+    <Compile Include="../src/VisualRules.cs" Link="VisualRules.cs" />
+    <Compile Include="../src/SemanticVoice.cs" Link="SemanticVoice.cs" />
+    <Reference Include="mscorlib" HintPath="$(FrameworkRoot)/mscorlib.dll" />
+    <Reference Include="System" HintPath="$(FrameworkRoot)/System.dll" />
+    <Reference Include="System.Core" HintPath="$(FrameworkRoot)/System.Core.dll" />
+    <Reference Include="0Harmony" HintPath="$(GameRoot)/BepInEx/core/0Harmony.dll" />
+    <Reference Include="MonoMod.RuntimeDetour" HintPath="$(GameRoot)/BepInEx/core/MonoMod.RuntimeDetour.dll" />
+    <Reference Include="MonoMod.Utils" HintPath="$(GameRoot)/BepInEx/core/MonoMod.Utils.dll" />
+    <Reference Include="Mono.Cecil" HintPath="$(GameRoot)/BepInEx/core/Mono.Cecil.dll" />
+  </ItemGroup>
+</Project>

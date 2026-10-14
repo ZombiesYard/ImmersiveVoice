@@ -1,0 +1,43 @@
+# Build output and IDE state
+**/bin/
+**/obj/
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+*.cache
+__pycache__/
+*.pyc
+
+# Game binaries, audio and packages
+*.dll
+*.exe
+*.pdb
+*.zip
+*.7z
+*.bundle
+*.ogg
+*.wav
+/BepInEx/
+/EscapeFromTarkov_Data/
+/SPT/
+/SPT_Runtime/
+
+# Local settings, credentials, logs and working material
+*.cfg
+*.log
+.env
+.env.*
+*.pem
+*.key
+*.pfx
+*.p12
+**/research/
+**/backup*/
+**/package/
+/_CodexWork/
+/verification/
+build-results.txt
+test-results.txt
+*-verification.json

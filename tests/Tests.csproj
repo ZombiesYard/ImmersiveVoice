@@ -1,0 +1,26 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TestTargetFramework Condition="'$(TestTargetFramework)' == ''">net10.0</TestTargetFramework>
+    <TargetFramework>$(TestTargetFramework)</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <DefineConstants Condition="'$(PortableTests)' == 'true'">$(DefineConstants);PORTABLE_TESTS</DefineConstants>
+    <GameRoot Condition="'$(GameRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..</GameRoot>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="../src/VoicePolicy.cs" Link="VoicePolicy.cs" />
+    <Compile Include="../src/ReactionQueue.cs" Link="ReactionQueue.cs" />
+    <Compile Include="../src/SemanticVoice.cs" Link="SemanticVoice.cs" />
+    <Compile Include="../src/MedicalRequestDecision.cs" Link="MedicalRequestDecision.cs" />
+    <Compile Include="../src/TreatmentMemory.cs" Link="TreatmentMemory.cs" />
+    <Compile Include="../src/HealthSpeechMemory.cs" Link="HealthSpeechMemory.cs" />
+    <Compile Include="../src/VisualRules.cs" Link="VisualRules.cs" />
+    <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />
+    <Compile Include="../src/SquadAwareness.cs" Link="SquadAwareness.cs" />
+    <Compile Include="../src/SquadMemory.cs" Link="SquadMemory.cs" />
+    <Compile Include="../src/SquadInitiatives.cs" Link="SquadInitiatives.cs" />
+    <Compile Include="../src/SquadLossMemory.cs" Link="SquadLossMemory.cs" />
+    <Compile Include="../src/VoiceJournal.cs" Link="VoiceJournal.cs" />
+    <Reference Include="Mono.Cecil" HintPath="$(GameRoot)/BepInEx/core/Mono.Cecil.dll" Condition="'$(PortableTests)' != 'true'" />
+  </ItemGroup>
+</Project>
