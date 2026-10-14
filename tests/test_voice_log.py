@@ -13,6 +13,21 @@ spec.loader.exec_module(module)
 
 
 class VoiceLogTests(unittest.TestCase):
+    def test_npc_observations_are_not_counted_as_local_voice_plays(self):
+        report = module.summarize([
+            "[AutoVoice] Session=a Event=Settings NpcReplies=True NpcReplyCooldown=30.00",
+            "[AutoVoice] Session=a Event=NpcHeard SourceVoice=Scav_1 HeardPhrase=OnFight Decision=Candidate Reason=AudibleHostileSpeech NpcEpisode=3",
+            "[AutoVoice] Session=a Event=NpcHeard SourceVoice=Scav_2 HeardPhrase=OnFight Decision=Suppressed Reason=AudioTooQuiet",
+            "[AutoVoice] Session=a Request=5 Event=NpcReply Voice=Usec_5 Intent=NpcRetort Phrase=OnFight Decision=Candidate NpcEpisode=3",
+            "[AutoVoice] Session=a Request=5 Decision=Played Source=Auto Voice=Usec_5 Phrase=OnFight HasAudio=True",
+        ], timeline=True)
+        session = report["sessions"]["a"]
+        self.assertEqual(session["settings"]["NpcReplyCooldown"], "30.00")
+        self.assertEqual(session["npc_hearing_decisions"], {"AudibleHostileSpeech": 1, "AudioTooQuiet": 1})
+        self.assertEqual(session["requests"]["5"]["history"][0]["NpcEpisode"], "3")
+        self.assertEqual(list(report["voices"]), ["Usec_5"])
+        self.assertEqual(report["voices"]["Usec_5"]["automatic_plays"], 1)
+
     def test_hit_wait_is_not_a_drop_or_play_and_new_damage_remains_terminal(self):
         report = module.summarize([
             "[AutoVoice] Session=a Time=10 Request=1 Event=EnemyDown Decision=Candidate Voice=Usec_1 Intent=TacticalEnemyDown Phrase=EnemyDown RecentHit=True DamageVersion=6/6",

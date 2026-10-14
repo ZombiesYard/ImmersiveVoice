@@ -13,6 +13,8 @@ namespace ImmersiveVoice
         public readonly ConfigEntry<KeyboardShortcut> SilenceKey;
         public readonly ConfigEntry<bool> Director, Visual, DamageReactions, Healing, TeamReplies, MedicalRequests, SquadCoordination;
         public readonly ConfigEntry<bool> Recording, FriendlyDown;
+        public readonly ConfigEntry<bool> NpcReplies;
+        public readonly ConfigEntry<float> NpcReplyCooldown;
         public readonly ConfigEntry<float> SightRange, ReloadRepeat, InjuryRepeat, ObjectRepeat, PostKillChance;
         public readonly ConfigEntry<float> CalmReloadChance, RecoveryReloadChance;
 
@@ -53,6 +55,8 @@ namespace ImmersiveVoice
             DamageReactions = Bind(config, "05 Event director 事件语音", "Damage reactions", true, nameof(DamageReactions));
             Healing = Bind(config, "05 Event director 事件语音", "Healing reactions", true, nameof(Healing));
             TeamReplies = Bind(config, "05 Event director 事件语音", "Nearby teammate replies", true, nameof(TeamReplies));
+            NpcReplies = Bind(config, "05 Event director 事件语音", "Reply to NPC taunts", true, nameof(NpcReplies));
+            NpcReplyCooldown = Number(config, "05 Event director 事件语音", "NPC reply cooldown", 30f, 8f, 120f, nameof(NpcReplyCooldown));
             SquadCoordination = Bind(config, "05 Event director 事件语音", "Squad coordination", true, nameof(SquadCoordination));
             FriendlyDown = Bind(config, "05 Event director 事件语音", "Witnessed teammate death", true, nameof(FriendlyDown));
             MedicalRequests = Bind(config, "05 Event director 事件语音", "Medical supply requests", true, nameof(MedicalRequests));

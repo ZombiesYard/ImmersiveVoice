@@ -17,7 +17,7 @@ namespace ImmersiveVoice
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "local.immersivevoice";
-        public const string Version = "2.11.0";
+        public const string Version = "2.12.0";
         private static Plugin _instance;
         private Harmony _harmony;
         private Settings _settings;
@@ -41,6 +41,7 @@ namespace ImmersiveVoice
                 }
                 _harmony = new Harmony(Id);
                 NativePlayback.Install(_harmony, Logger);
+                SpeechObservation.Install(_harmony, Logger);
                 Patch(typeof(GesturesQuickPanel), "Show", nameof(OnPanelShown), false);
                 Patch(typeof(GamePlayerOwner), "QuickMumbleHandler", nameof(OnManualInput), true);
                 Patch(typeof(GamePlayerOwner), "MakeBindActionHandler", nameof(OnManualInput), true);

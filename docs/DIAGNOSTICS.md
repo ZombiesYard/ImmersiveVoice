@@ -14,6 +14,11 @@ F12菜单中的“保存排查日志”默认开启。日志写入客户端目�
 | RecentDamage | 暂时等待最近受击保护结束 |
 | ActionEnded / Expired | 动作已结束或候选过期 |
 | SameHealthEpisode | 同段伤情不需要重复播报 |
+| AudioNotPlaying / AudioTooQuiet / OutsideHearingRange | NPC音源未播放、被静音/衰减或超出听音范围 |
+| NoHostileEvidence / UnawareMutter | 缺少敌对证据，或只是未确认敌人的普通独白 |
+| NearbyPlayerReplied | 附近队友已经发出战斗回应 |
+| ReplyCooldown / NpcStillSpeaking | 回应冷却中，或NPC还没说完 |
+| NpcExchangeEnded | 对象离开、死亡、事件过期或其他情况使回应失效 |
 
 独立日志不记录聊天、录音、昵称、账号标识、完整物品列表或绝对坐标。它会包含声线名称、设置、距离、速度和事件时序。其他插件写入的BepInEx主日志不受本Mod控制。
 
@@ -26,3 +31,5 @@ python tools/summarize_voice_log.py PATH_TO_VOICE_LOG --timeline
 ```
 
 多端核对使用各自同一场战局的日志。记录中的播放确认表示原生回调发生，不等于已由人耳确认听感、声学遮挡或远端实际可听。
+
+`NpcHeard`表示音频观察结果，不能计作本机已经说话。`NpcEpisode`连接同一互动；实际发声仍以带有`Source=Auto`的`Played`记录为准。摘要中的`npc_hearing_decisions`汇总听音和接纳原因。

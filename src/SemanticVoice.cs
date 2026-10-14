@@ -8,7 +8,7 @@ namespace ImmersiveVoice
         Contact, LostVisual, KillConfirm, TacticalEnemyDown, KillTaunt,
         Recovery, Acknowledge, CombatBark, CalmMutter, NativeContext,
         RepeatedContact, Bleeding, ArmFracture, LegFracture, MedicalRequest, TeamFollowing, TeamCovering, TeamAdvance, TeamRetreat,
-        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown
+        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, NpcRetort
     }
 
     internal enum VoiceMode { Solo, FikaHost, FikaClient }
@@ -112,7 +112,7 @@ namespace ImmersiveVoice
             if (intent == VoiceIntent.Silent) return "SilentIntent";
             if (intent == VoiceIntent.TacticalEnemyDown && context.DamageVersion != damageVersion)
                 return "DamageAfterRequest";
-            bool emotional = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.CombatBark;
+            bool emotional = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.CombatBark || intent == VoiceIntent.NpcRetort;
             if (emotional || intent == VoiceIntent.KillConfirm || intent == VoiceIntent.TacticalEnemyDown)
             {
                 if (context.Injury >= InjuryLevel.BadlyInjured) return "SevereInjury";
@@ -131,7 +131,7 @@ namespace ImmersiveVoice
         }
 
         public static VoiceIntent HistoryKey(VoiceIntent intent)
-            => intent == VoiceIntent.KillTaunt ? VoiceIntent.CombatBark
+            => intent == VoiceIntent.KillTaunt || intent == VoiceIntent.NpcRetort ? VoiceIntent.CombatBark
                 : intent == VoiceIntent.RepeatedContact ? VoiceIntent.Contact : intent;
     }
 }

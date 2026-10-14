@@ -56,6 +56,7 @@ def main():
 
 F12配置菜单：切换简体中文/English，调整频率，按需展开高级设置。
 默认Pause键切换本局静默；原有手动喊话保留。
+回应NPC挑衅默认开启；成功回应后默认冷却30秒。NPC互动仍待游戏内及Fika实测。
 配置首次启动自动生成：BepInEx/config/local.immersivevoice.cfg
 升级保留原有配置；卸载时退出游戏并删除插件目录。
 

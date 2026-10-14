@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace ImmersiveVoice
 {
-    internal enum ReactionKind { Reload, Ammo, Malfunction, Grenade, Injury, Heal, Contact, LostVisual, EnemyDown, Recovery, Reply, RepeatedContact, MedicalRequest, AfterTreatment, Squad, FriendlyDown }
+    internal enum ReactionKind { Reload, Ammo, Malfunction, Grenade, Injury, Heal, Contact, LostVisual, EnemyDown, Recovery, Reply, RepeatedContact, MedicalRequest, AfterTreatment, Squad, FriendlyDown, NpcReply }
 
     internal sealed class Reaction
     {
@@ -17,6 +17,7 @@ namespace ImmersiveVoice
         public int DamageVersion;
         public int ExchangeVersion, MalfunctionEpisode;
         public int TreatmentVersion;
+        public int NpcEpisode;
         public SquadDecision Squad;
         public SquadLoss Loss;
         public string LastWaitReason;

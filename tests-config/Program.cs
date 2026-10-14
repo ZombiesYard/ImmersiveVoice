@@ -45,7 +45,7 @@ internal static class Program
         var config = new ConfigFile(path, false) { SaveOnConfigSet = false };
         using (var settings = new Settings(config))
         {
-            Check(config.Count == 38, "upgrade keeps 36 legacy settings and adds only two menu preferences");
+            Check(config.Count == 40, "upgrade preserves legacy settings and adds the NPC reply switch and cooldown");
             foreach (var row in baseline)
             {
                 var entry = config[new ConfigDefinition(row[1], row[2])];
@@ -60,7 +60,9 @@ internal static class Program
                         && range.MaxValue == float.Parse(row[7], CultureInfo.InvariantCulture), row[0] + " retains its allowed range");
                 }
             }
-            Check(config.Count(pair => Tag(pair.Value).Browsable == true) == 17, "default menu exposes only 17 player-facing options");
+            Check(config.Count(pair => Tag(pair.Value).Browsable == true) == 18, "default menu exposes 18 player-facing options");
+            Check(settings.NpcReplies.Value && settings.NpcReplyCooldown.Value == 30f,
+                "NPC replies default on with a thirty-second successful-play cooldown");
             Check(!settings.ApplyPendingMenu(), "initial menu has no pending per-frame rebuild");
             var values = config.Where(p => p.Key.Section != "00 Menu").ToDictionary(p => p.Key, p => Stored(p.Value));
             settings.Language.Value = MenuLanguage.English;

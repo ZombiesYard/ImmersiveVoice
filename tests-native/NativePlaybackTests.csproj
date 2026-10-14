@@ -12,6 +12,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/NativePlayback.cs" Link="NativePlayback.cs" />
+    <Compile Include="../src/SpeechObservation.cs" Link="SpeechObservation.cs" />
     <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />
     <Compile Include="../src/VoicePolicy.cs" Link="VoicePolicy.cs" />
     <Compile Include="../src/VisualRules.cs" Link="VisualRules.cs" />

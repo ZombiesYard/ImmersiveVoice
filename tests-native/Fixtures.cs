@@ -7,8 +7,17 @@ public enum EPhraseTrigger { None, PhraseNone, OnBreath, StartHeal, OnMutter, On
 public enum ETagStatus { None, Combat }
 public class TaggedClip { }
 public class TagBank { public int Importance; }
+public class BetterSource { }
 namespace EFT
 {
+    public class Player
+    {
+        protected BetterSource _speechSource = new BetterSource();
+        public int PlayCount;
+        public BetterSource Source => _speechSource;
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        public void PlayPhraseClip(TaggedClip clip) { PlayCount++; }
+    }
     public class BaseSpeaker
     {
         public Dictionary<EPhraseTrigger, TagBank> PhrasesBanks = new Dictionary<EPhraseTrigger, TagBank>();
@@ -23,6 +32,10 @@ namespace EFT
             return Busy && (importance ?? bank.Importance) <= Importance ? null : bank;
         }
     }
+}
+public static class SuppressedAudioFixture
+{
+    public static bool Prefix() => false;
 }
 namespace BepInEx.Bootstrap
 {

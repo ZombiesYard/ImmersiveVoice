@@ -5,10 +5,15 @@
     <TargetFramework>$(TestTargetFramework)</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <DefineConstants Condition="'$(PortableTests)' == 'true'">$(DefineConstants);PORTABLE_TESTS</DefineConstants>
+    <TestFlavor Condition="'$(PortableTests)' == 'true'">portable</TestFlavor>
+    <TestFlavor Condition="'$(PortableTests)' != 'true'">interfaces</TestFlavor>
+    <OutputPath>bin/$(Configuration)/$(TestFlavor)/</OutputPath>
+    <IntermediateOutputPath>obj/$(Configuration)/$(TestFlavor)/</IntermediateOutputPath>
     <GameRoot Condition="'$(GameRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..</GameRoot>
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="../src/VoicePolicy.cs" Link="VoicePolicy.cs" />
+    <Compile Include="../src/NpcReplyRules.cs" Link="NpcReplyRules.cs" />
     <Compile Include="../src/ReactionQueue.cs" Link="ReactionQueue.cs" />
     <Compile Include="../src/SemanticVoice.cs" Link="SemanticVoice.cs" />
     <Compile Include="../src/MedicalRequestDecision.cs" Link="MedicalRequestDecision.cs" />

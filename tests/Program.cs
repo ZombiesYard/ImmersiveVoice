@@ -352,6 +352,7 @@ SquadScenarios.Run(Check);
 SquadTacticalScenarios.Run(Check);
 SquadContinuityScenarios.Run(Check);
 JournalScenarios.Run(Check);
+NpcReplyScenarios.Run(Check);
 
 // Exhaust every ownership/lifecycle combination; only a live, running, local
 // human outside the hideout/headless/downed/extracted states may speak.
@@ -406,6 +407,22 @@ Check(Calls(Method(fika, "Fika.Core.Networking.Packets.Player.Common.SubPackets.
 var observedSpeech = Method(fika, "Fika.Core.Main.Players.ObservedPlayer", "OnPhraseTold");
 Check(Calls(observedSpeech, "EFT.Player::PlayPhraseClip") && !Calls(observedSpeech, "SendNetReusable")
     && !Calls(observedSpeech, "FikaPlayer::OnPhraseTold"), "observed remote speech plays locally without re-sending the phrase packet");
+var phraseAudio = Method(game, "EFT.Player", "PlayPhraseClip");
+Check(!phraseAudio.IsVirtual && phraseAudio.Parameters.Count == 1
+    && phraseAudio.Parameters[0].ParameterType.Name == "TaggedClip"
+    && Calls(phraseAudio, "EFT.Player::PlaySpeechFromTime")
+    && Calls(Method(game, "EFT.Player", "OnPhraseTold"), "EFT.Player::PlayPhraseClip"),
+    "NPC observation uses the actual audio endpoint shared by native and Fika received speech");
+Check(Type(game, "EFT.Player").Fields.Any(f => f.Name == "_speechSource" && f.FieldType.Name == "BetterSource")
+    && Type(game, "BetterSource").Properties.Any(p => p.Name == "OcclusionVolumeFactor")
+    && Type(game, "BetterSource").Properties.Any(p => p.Name == "OcclusionRolloffScale"),
+    "NPC audio observation has the installed source and native occlusion fields");
+Check(!Type(plugin, "ImmersiveVoice.NpcReplyObserver").Methods.Where(m => m.HasBody).Any(m =>
+    Calls(m, "RegisteredPlayers") || Calls(m, "Raycast") || Calls(m, "BotOwner")),
+    "NPC replies do not scan the raid, cast rays or consult NPC brains");
+Check(Calls(Method(plugin, "ImmersiveVoice.VoiceSession", ".ctor"), "SpeechObservation::add_Played")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceSession", "Dispose"), "SpeechObservation::remove_Played"),
+    "the local raid session owns and removes the speech observation listener");
 Check(Calls(observedSpeech, "FikaBackendUtils::get_IsHeadless"), "observed speech retains Fika's headless audio guard");
 Check(Calls(Method(fika, "Fika.Core.Main.Players.FikaPlayer", "ApplyDamageInfo"), "EFT.Player::ApplyDamageInfo"),
     "installed Fika damage path retains the original local hit event");

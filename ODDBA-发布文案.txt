@@ -1,11 +1,11 @@
 标题：
-[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.11.0｜沉浸式角色语音与队友交流｜GPL开源
+[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.12.0｜沉浸式角色语音与队友交流｜GPL开源
 
 简介：
 换弹时提醒一句，发现敌人时发出通报，跟上队友、实际提供火力掩护时自然接话——Immersive Voice让角色根据正在发生的事情，使用自己的现有声线自动表达。
 
 Mod名称：Immersive Voice / 沉浸式角色语音
-版本：2.11.0
+版本：2.12.0（NPC互动测试版）
 作者：ZombiesYard
 类型：BepInEx客户端插件
 支持环境：SPT 4.1.6 / EFT 0.16.9.40743
@@ -24,17 +24,20 @@ Mod名称：Immersive Voice / 沉浸式角色语音
 3. 队友之间有交流
 结合相对移动、跟随距离、靠拢、停留及同一威胁交火，产生跟随、掩护、推进、后撤、集合、守位和行为吻合后的回应。无需先手动下令。
 
-4. 环境和情绪表达
+4. 回应NPC挑衅
+听见35米内敌对NPC战斗喊话后，用自己的原版战斗台词回骂；等对方说完，默认成功回应后冷却30秒。附近队友先回应时会取消自己的待回应。Player Scav不会因友善Scav闲聊回骂。独立开关默认开启，不要求打开随机战斗喊话。
+
+5. 环境和情绪表达
 利用原版搜刮、门、撤离等情境提示，配合平静独白、战斗喊话和战后反应。冷却与事件过期机制会限制重复发声。
 
-5. 中英文设置
+6. 中英文设置
 F12菜单支持简体中文和English。默认显示常用选项，高级设置按需展开，可调整频率、平静换弹概率、潜行静默和日志。
 
 全部使用当前角色现有声线和原版空间音频。某个声线没有对应台词就跳过，不借用其他角色声音，不拿别的含义强行凑一句。
 
 【安装方法】
 
-退出游戏，将附件ImmersiveVoice-2.11.0.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
+退出游戏，将附件ImmersiveVoice-2.12.0.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
 
 最终文件路径：
 BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
@@ -58,15 +61,15 @@ BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
 - 这些语音用于增强沉浸感，不能代替玩家之间的实际交流。
 - 已做构建、逻辑与接口验证；四人完整实战和不同Mod组合仍需更多反馈。不承诺零性能开销。
 
-【2.11.0更新】
+【2.12.0更新】
 
-精简配置菜单，增加中英文切换，保留原配置；包含2.10系列的伤势、接敌、击倒通报与队友感知修复。
+新增NPC语音回应及听音诊断，保留中英文菜单与已有配置。复用原版音源和遮挡，不增加全图NPC扫描、射线或网络包。NPC互动为新增测试功能，实际听感和Fika联机效果待游戏内验证。
 
 【下载与源码】
 
-安装包：本帖附件ImmersiveVoice-2.11.0.zip
+安装包：本帖附件ImmersiveVoice-2.12.0.zip
 GitHub：https://github.com/ZombiesYard/ImmersiveVoice
-版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.11.0
+版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.12.0
 源码以GPL-3.0-only发布。转载或分发修改版请保留声明，并遵守许可证的源码提供要求。游戏及第三方素材不在本项目授权范围内。
 
 【反馈】
@@ -75,7 +78,7 @@ GitHub：https://github.com/ZombiesYard/ImmersiveVoice
 
 【文件检测】
 
-2026-10-14对最终发布DLL进行Microsoft Defender本地自定义扫描，结果未发现威胁（退出码0）。DLL的SHA-256：
-6949860cbadddb580bd079d9f9f7cc5b717e993a2087d7eb05a28842663e701a
+2026-10-14对2.12.0最终DLL进行Microsoft Defender本地扫描，未发现威胁（退出码0）。
+DLL SHA-256：73249c3d8bf8a7d3cb1d9f4f524f886a0a312a6cbebeeb9575532e93e6b0d364
 
 发帖前请为最终附件补充第三方检测报告链接。随包SHA-256校验文件用于核对下载完整性，不替代病毒检测。

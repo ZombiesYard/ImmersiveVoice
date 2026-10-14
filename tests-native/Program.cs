@@ -92,4 +92,34 @@ foreach (bool femaleFirst in new[] { true, false })
     }
     finally { NativePlayback.End(); harmony.UnpatchSelf(); female.UnpatchSelf(); }
 }
+SpeechObservation.Install(harmony, log);
+var playerFixture = new Player();
+var speechClip = new TaggedClip();
+int heard = 0;
+Action<Player, TaggedClip, BetterSource> listener = (p, c, source) =>
+{
+    Check(p == playerFixture && c == speechClip && source == playerFixture.Source && p.PlayCount == 1,
+        "audio postfix receives the real protected source field after the original method");
+    heard++;
+};
+SpeechObservation.Played += listener;
+playerFixture.PlayPhraseClip(speechClip);
+var suppressor = new Harmony("test.suppressed.audio");
+suppressor.Patch(AccessTools.Method(typeof(Player), "PlayPhraseClip"),
+    prefix: new HarmonyMethod(typeof(SuppressedAudioFixture), "Prefix"));
+playerFixture.PlayPhraseClip(speechClip);
+Check(heard == 1 && playerFixture.PlayCount == 1, "a skipped native audio call is not observed as heard speech");
+suppressor.UnpatchSelf();
+SpeechObservation.Played -= listener;
+playerFixture.PlayPhraseClip(speechClip);
+Check(heard == 1, "disposing the listening session removes audio callbacks");
+Action<Player, TaggedClip, BetterSource> badListener = (p, c, source) => throw new InvalidOperationException();
+SpeechObservation.Played += badListener;
+int warnings = log.Warnings;
+playerFixture.PlayPhraseClip(speechClip);
+playerFixture.PlayPhraseClip(speechClip);
+Check(log.Warnings == warnings + 1 && playerFixture.PlayCount == 4,
+    "observer failure is isolated and logged once without blocking native playback");
+SpeechObservation.Played -= badListener;
+harmony.UnpatchSelf();
 Console.WriteLine("SUCCESS: " + count + " real-Harmony checks with fixtures; no Unity audio or network test.");

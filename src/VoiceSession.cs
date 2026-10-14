@@ -62,6 +62,7 @@ namespace ImmersiveVoice
             catch { _journal.Dispose(); throw; }
             _idleAt = Time.time + IdleInterval();
             _speaker.OnPhraseTold += OnSpoken;
+            SpeechObservation.Played += _director.ObserveSpeech;
             _log.LogInfo("Attached automatic voice to local raid player. Current voice: " + _speaker.PlayerVoice);
             if (Tracing) Trace($"Event=SessionStart Version={Plugin.Version} Mode={_fika.Mode(Player)} Voice={_speaker.PlayerVoice} FemaleCompatibility={NativePlayback.FemaleCompatibility} TrackedTargets={TargetTracker.Capacity} PeerCapacity={SquadMemory.Capacity} SampleHz=4 SightHz=6 DecisionHz=2");
         }
@@ -281,7 +282,7 @@ namespace ImmersiveVoice
         {
             if (!Tracing || now < _settingsAt) return;
             _settingsAt = now + 10f;
-            string fields = FormattableString.Invariant($"Event=Settings Version={Plugin.Version} Mode={_fika.Mode(Player)} Enabled={_settings.Enabled.Value} Director={_settings.Director.Value} Coordination={_settings.SquadCoordination.Value} Replies={_settings.TeamReplies.Value} FriendlyDown={_settings.FriendlyDown.Value} Recording={_settings.Recording.Value} Debug={_settings.Debug.Value} Gap={_settings.Gap.Value:F2} ManualPause={_settings.ManualPause.Value:F2} RespectStealth={_settings.RespectStealth.Value} Combat={_settings.Combat.Value} CombatMin={_settings.CombatMin.Value:F2} CombatMax={_settings.CombatMax.Value:F2} CombatChance={_settings.CombatChance.Value:F2} Idle={_settings.Idle.Value} IdleMin={_settings.IdleMin.Value:F2} IdleMax={_settings.IdleMax.Value:F2} ContextInStealth={_settings.ContextInStealth.Value} InjuryCooldown={_settings.InjuryRepeat.Value:F2} Visual={_settings.Visual.Value} VisualRange={_settings.SightRange.Value:F1} Healing={_settings.Healing.Value} Damage={_settings.DamageReactions.Value} MedicalRequests={_settings.MedicalRequests.Value} CalmReloadChance={_settings.CalmReloadChance.Value:F2} RecoveryReloadChance={_settings.RecoveryReloadChance.Value:F2}");
+            string fields = FormattableString.Invariant($"Event=Settings Version={Plugin.Version} Mode={_fika.Mode(Player)} Enabled={_settings.Enabled.Value} Director={_settings.Director.Value} Coordination={_settings.SquadCoordination.Value} Replies={_settings.TeamReplies.Value} FriendlyDown={_settings.FriendlyDown.Value} Recording={_settings.Recording.Value} Debug={_settings.Debug.Value} Gap={_settings.Gap.Value:F2} ManualPause={_settings.ManualPause.Value:F2} RespectStealth={_settings.RespectStealth.Value} Combat={_settings.Combat.Value} CombatMin={_settings.CombatMin.Value:F2} CombatMax={_settings.CombatMax.Value:F2} CombatChance={_settings.CombatChance.Value:F2} Idle={_settings.Idle.Value} IdleMin={_settings.IdleMin.Value:F2} IdleMax={_settings.IdleMax.Value:F2} ContextInStealth={_settings.ContextInStealth.Value} InjuryCooldown={_settings.InjuryRepeat.Value:F2} Visual={_settings.Visual.Value} VisualRange={_settings.SightRange.Value:F1} Healing={_settings.Healing.Value} Damage={_settings.DamageReactions.Value} MedicalRequests={_settings.MedicalRequests.Value} CalmReloadChance={_settings.CalmReloadChance.Value:F2} RecoveryReloadChance={_settings.RecoveryReloadChance.Value:F2} NpcReplies={_settings.NpcReplies.Value} NpcReplyCooldown={_settings.NpcReplyCooldown.Value:F2}");
             if (fields == _lastSettings) return;
             _lastSettings = fields; Trace(fields);
         }
@@ -514,6 +515,7 @@ namespace ImmersiveVoice
             try
             {
                 _speaker.OnPhraseTold -= OnSpoken;
+                SpeechObservation.Played -= _director.ObserveSpeech;
                 _director.Dispose();
             }
             finally
