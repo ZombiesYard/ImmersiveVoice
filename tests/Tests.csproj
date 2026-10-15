@@ -26,6 +26,7 @@
     <Compile Include="../src/SquadInitiatives.cs" Link="SquadInitiatives.cs" />
     <Compile Include="../src/SquadLossMemory.cs" Link="SquadLossMemory.cs" />
     <Compile Include="../src/VoiceJournal.cs" Link="VoiceJournal.cs" />
+    <Compile Include="../src/FaultDetails.cs" Link="FaultDetails.cs" />
     <Reference Include="Mono.Cecil" HintPath="$(GameRoot)/BepInEx/core/Mono.Cecil.dll" Condition="'$(PortableTests)' != 'true'" />
   </ItemGroup>
 </Project>

@@ -6,8 +6,8 @@ using HarmonyLib;
 
 namespace ImmersiveVoice
 {
-    // Both native speakers and Fika's observed speakers reach this non-virtual
-    // audio endpoint. Never change its arguments, result or network behavior.
+    // Observe the actual audio implementation, not the tiny PlayPhraseClip
+    // forwarding method which may be inlined. Never alter native playback.
     internal static class SpeechObservation
     {
         public static event Action<Player, TaggedClip, BetterSource> Played;
@@ -20,6 +20,11 @@ namespace ImmersiveVoice
         public static void Install(Harmony harmony, ManualLogSource log)
         {
             _log = log; _faulted = false;
+            // Patch the audio callee before compiling the phrase-scope wrappers.
+            var audio = AccessTools.DeclaredMethod(typeof(Player), "PlaySpeechFromTime",
+                new[] { typeof(TaggedClip), typeof(float) });
+            if (audio == null) throw new MissingMethodException(typeof(Player).FullName, "PlaySpeechFromTime");
+            harmony.Patch(audio, postfix: new HarmonyMethod(typeof(SpeechObservation), nameof(AfterSpeech)));
             Scope(harmony, typeof(Player));
             if (Chainloader.PluginInfos.TryGetValue("com.fika.core", out var fika) && fika.Instance != null)
             {
@@ -27,8 +32,6 @@ namespace ImmersiveVoice
                 Scope(harmony, assembly.GetType("Fika.Core.Main.Players.FikaPlayer"));
                 Scope(harmony, assembly.GetType("Fika.Core.Main.Players.ObservedPlayer"));
             }
-            harmony.Patch(AccessTools.DeclaredMethod(typeof(Player), "PlayPhraseClip", new[] { typeof(TaggedClip) }),
-                postfix: new HarmonyMethod(typeof(SpeechObservation), nameof(AfterSpeech)));
         }
         private static void Scope(Harmony harmony, Type type)
         {
@@ -44,14 +47,15 @@ namespace ImmersiveVoice
             _scope = new PhraseScope { Player = __instance, Clip = __1, Phrase = __0 };
         }
         private static void AfterPhrase(PhraseScope __state) { _scope = __state; }
-        private static void AfterSpeech(Player __instance, TaggedClip __0, BetterSource ____speechSource, bool __runOriginal)
+        private static void AfterSpeech(Player __instance, TaggedClip __0, float __1, BetterSource ____speechSource, bool __runOriginal)
         {
-            if (!__runOriginal || _faulted) return;
+            // Seeking/resuming an existing clip is not a new conversational turn.
+            if (!__runOriginal || _faulted || __1 != 0f) return;
             try { Played?.Invoke(__instance, __0, ____speechSource); }
             catch (Exception ex)
             {
                 _faulted = true;
-                _log.LogWarning("NPC speech observation disabled after callback error: " + ex.GetType().Name);
+                _log.LogWarning("NPC speech observation disabled after callback error: " + FaultDetails.Format(ex));
             }
         }
     }

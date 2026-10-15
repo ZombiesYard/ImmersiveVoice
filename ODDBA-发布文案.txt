@@ -1,11 +1,11 @@
 标题：
-[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.13.0｜沉浸式角色语音与队友交流｜GPL开源
+[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.13.1｜沉浸式角色语音与队友交流｜GPL开源
 
 简介：
 换弹时提醒一句，发现敌人时发出通报，跟上队友、实际提供火力掩护时自然接话——Immersive Voice让角色根据正在发生的事情，使用自己的现有声线自动表达。
 
 Mod名称：Immersive Voice / 沉浸式角色语音
-版本：2.13.0（NPC互动测试版）
+版本：2.13.1（NPC互动测试版）
 作者：ZombiesYard
 类型：BepInEx客户端插件
 支持环境：SPT 4.1.6 / EFT 0.16.9.40743
@@ -37,7 +37,7 @@ F12菜单支持简体中文和English。默认显示常用选项，高级设置�
 
 【安装方法】
 
-退出游戏，将附件ImmersiveVoice-2.13.0.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
+退出游戏，将附件ImmersiveVoice-2.13.1.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
 
 最终文件路径：
 BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
@@ -61,15 +61,15 @@ BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
 - 这些语音用于增强沉浸感，不能代替玩家之间的实际交流。
 - 已做构建、逻辑与接口验证；四人完整实战和不同Mod组合仍需更多反馈。不承诺零性能开销。
 
-【2.13.0更新】
+【2.13.1更新】
 
-扩展各类NPC语音识别、友敌关系、行为应答和短对话记忆。保持8个近期NPC记录、4Hz运动采样，复用原版音源和既有视觉证据；不增加全图NPC扫描、射线或网络包。日志增加关系、分类、应答决策和处理耗时。保留配置键与中英文菜单；实际听感和Fika联机效果待游戏内验证。
+修复Fika客户端把远端NPC当作人类过滤的问题，同时修正目视认敌和队友筛选。语音监听改为真正的声音播放入口；单次自动播放空引用不再立即终止整局导演。日志增加可保留的异常调用位置和NPC入口过滤计数。保持原有配置、概率、8个NPC记录和4Hz运动采样；缺少音效继续静默。修复后的实际听感和Fika联机效果待游戏内验证。
 
 【下载与源码】
 
-安装包：本帖附件ImmersiveVoice-2.13.0.zip
+安装包：本帖附件ImmersiveVoice-2.13.1.zip
 GitHub：https://github.com/ZombiesYard/ImmersiveVoice
-版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.13.0
+版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.13.1
 源码以GPL-3.0-only发布。转载或分发修改版请保留声明，并遵守许可证的源码提供要求。游戏及第三方素材不在本项目授权范围内。
 
 【反馈】
@@ -78,7 +78,6 @@ GitHub：https://github.com/ZombiesYard/ImmersiveVoice
 
 【文件检测】
 
-2026-10-14对2.13.0最终DLL进行Microsoft Defender本地扫描，未发现威胁（退出码0）。
-DLL SHA-256：cff3309c4180d5cc919821fa8b6d860e94a1660d55e70ef0a6806cae75549fb8
+最终DLL检测结果及SHA-256见本版本发布说明；包内SHA256SUMS.txt可核对DLL完整性。
 
 发帖前请为最终附件补充第三方检测报告链接。随包SHA-256校验文件用于核对下载完整性，不替代病毒检测。

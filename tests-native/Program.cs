@@ -92,6 +92,10 @@ foreach (bool femaleFirst in new[] { true, false })
     }
     finally { NativePlayback.End(); harmony.UnpatchSelf(); female.UnpatchSelf(); }
 }
+
+var soloBridge = new FikaBridge();
+Check(!soloBridge.IsAI(null) && !soloBridge.IsAI(new Player()) && soloBridge.IsAI(new Player { IsAI = true }),
+    "SPT without Fika distinguishes native AI, humans and missing players");
 SpeechObservation.Install(harmony, log);
 var playerFixture = new Player();
 var speechClip = new TaggedClip();
@@ -105,7 +109,7 @@ Action<Player, TaggedClip, BetterSource> listener = (p, c, source) =>
 SpeechObservation.Played += listener;
 playerFixture.PlayPhraseClip(speechClip);
 var suppressor = new Harmony("test.suppressed.audio");
-suppressor.Patch(AccessTools.Method(typeof(Player), "PlayPhraseClip"),
+suppressor.Patch(AccessTools.Method(typeof(Player), "PlaySpeechFromTime"),
     prefix: new HarmonyMethod(typeof(SuppressedAudioFixture), "Prefix"));
 playerFixture.PlayPhraseClip(speechClip);
 Check(heard == 1 && playerFixture.PlayCount == 1, "a skipped native audio call is not observed as heard speech");
@@ -124,6 +128,20 @@ SpeechObservation.Played -= badListener;
 harmony.UnpatchSelf();
 
 Chainloader.PluginInfos["com.fika.core"] = new PluginInfo { Instance = new Fika.Core.Main.Players.FikaPlayer() };
+var bridge = new FikaBridge();
+var remoteBot = new Fika.Core.Main.Players.ObservedPlayer { IsAI = false, IsObservedAI = true };
+var remoteHuman = new Fika.Core.Main.Players.ObservedPlayer { IsAI = false, IsObservedAI = false };
+Check(!remoteBot.IsAI && bridge.IsAI(remoteBot) && !bridge.IsAI(remoteHuman),
+    "Fika client identifies a replicated bot without a local BotOwner and preserves remote human identity");
+Check(!bridge.IsAI(new Player()) && bridge.IsAI(new Player { IsAI = true }) && !bridge.IsAI(null),
+    "optional Fika reader also accepts native SPT entities without invalid casts");
+Check(VisualRules.RecognizableEnemy(false, bridge.IsAI(remoteBot), true, false, true)
+    && !VisualRules.RecognizableEnemy(false, bridge.IsAI(remoteHuman), true, true, false)
+    && !VisualRules.RecognizableEnemy(false, bridge.IsAI(remoteBot), false, false, true),
+    "PMC recognizes a visible replicated Scav; humans and neutral Scav encounters keep their boundaries");
+remoteHuman.Downed = true;
+Check(bridge.Downed(remoteHuman) && !bridge.Downed(new Player()) && bridge.Mode(remoteBot) == VoiceMode.FikaClient,
+    "AI adaptation preserves optional Fika downed and client checks");
 SpeechObservation.Install(harmony, log);
 EPhraseTrigger observedPhrase = EPhraseTrigger.None;
 Action<Player, TaggedClip, BetterSource> exactListener = (p, c, source) => observedPhrase = SpeechObservation.Phrase(p, c);
@@ -138,6 +156,37 @@ foreach (Player source in new Player[] { new Player(), new Fika.Core.Main.Player
     source.PlayPhraseClip(speechClip);
     Check(observedPhrase == EPhraseTrigger.None, "direct third-party playback never inherits a stale phrase");
 }
+int observedBefore = heard;
+Action<Player, TaggedClip, BetterSource> counter = (p, c, source) => heard++;
+SpeechObservation.Played += counter;
+remoteBot.OnPhraseTold(EPhraseTrigger.OnMutter, speechClip, new TagBank(), new BaseSpeaker());
+Check(heard == observedBefore + 1 && observedPhrase == EPhraseTrigger.OnMutter,
+    "replicated NPC reaches the real audio observer once through an inlineable forwarding method");
+remoteBot.PlaySpeechFromTime(speechClip, 1f);
+Check(heard == observedBefore + 1, "resuming an existing clip cannot invent a second NPC turn");
+Fika.Core.Main.Utils.FikaBackendUtils.IsHeadless = true;
+remoteBot.OnPhraseTold(EPhraseTrigger.OnMutter, speechClip, new TagBank(), new BaseSpeaker());
+Check(heard == observedBefore + 1, "headless suppression never produces an NPC observation");
+Fika.Core.Main.Utils.FikaBackendUtils.IsHeadless = false;
+remoteBot.ThrowOnAudio = true;
+var audioError = NativePlayback.TrySpeak(() => remoteBot.OnPhraseTold(EPhraseTrigger.OnMutter, speechClip, new TagBank(), new BaseSpeaker()));
+Check(audioError is NullReferenceException && heard == observedBefore + 1
+    && SpeechObservation.Phrase(remoteBot, speechClip) == EPhraseTrigger.None,
+    "throwing native audio is not observed and the Fika phrase scope is restored");
+string details = FaultDetails.Format(audioError);
+Check(details.Contains("NullReferenceException") && details.Contains("PlaySpeechFromTime")
+    && !details.Contains("private-message-token") && !details.Contains("Fixtures.cs"),
+    "durable fault details retain call sites without exception messages or source paths");
+remoteBot.ThrowOnAudio = false;
+Check(NativePlayback.TrySpeak(() => remoteBot.OnPhraseTold(EPhraseTrigger.OnMutter, speechClip, new TagBank(), new BaseSpeaker())) == null
+    && heard == observedBefore + 2, "a later native phrase can play after an isolated audio exception");
+Check(NativePlayback.TrySpeak(() => { throw new UnityEngine.MissingReferenceException(); }) is UnityEngine.MissingReferenceException,
+    "destroyed Unity objects are isolated at the same automatic call boundary");
+bool unexpectedPropagated = false;
+try { NativePlayback.TrySpeak(() => { throw new InvalidOperationException(); }); }
+catch (InvalidOperationException) { unexpectedPropagated = true; }
+Check(unexpectedPropagated, "unrelated failures are not silently treated as recoverable audio errors");
+SpeechObservation.Played -= counter;
 SpeechObservation.Played -= exactListener;
 harmony.UnpatchSelf();
 Console.WriteLine("SUCCESS: " + count + " real-Harmony checks with fixtures; no Unity audio or network test.");

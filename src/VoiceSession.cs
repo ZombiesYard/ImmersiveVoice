@@ -26,6 +26,8 @@ namespace ImmersiveVoice
         private bool _wasCombat, _wasHoldingCalm, _automatic, _automaticPlayed, _silent, _disposed, _wasSuspended;
         private VoiceCue _inflight;
         private int _attempts, _played;
+        private readonly PlaybackRecovery _playbackRecovery = new PlaybackRecovery();
+        private bool _playbackFaulted;
         private string _catalogVoice;
         private string _missingContext;
         private string _nativeHealthBlocked;
@@ -87,7 +89,7 @@ namespace ImmersiveVoice
         }
 
         public void ObservedHit(Player victim, DamageInfo info) => _director.ObservedHit(victim, info);
-        public void Fault(Exception ex) { if (Tracing) Trace("Event=Fault Component=Session Reason=" + ex.GetType().Name); }
+        public void Fault(Exception ex) { if (Tracing) Trace("Event=Fault Component=Session " + FaultDetails.Format(ex)); }
 
         // False means the player/world was disposed, and all listeners must go.
         public bool Tick()
@@ -192,7 +194,7 @@ namespace ImmersiveVoice
                 {
                     EPhraseTrigger phrase = (EPhraseTrigger)reaction.Cue.Phrase;
                     bool played = Attempt(reaction.Cue, () => SayNative(phrase));
-                    _director.Completed(reaction, played);
+                    _director.Completed(reaction, played, _playbackFaulted);
                     if (played && DirectedNative(phrase) && GesturesQuickPanel.PhrasePriorities.ContainsKey(phrase))
                         Panel.SetPhraseActive(phrase, false);
                     return true;
@@ -261,7 +263,7 @@ namespace ImmersiveVoice
         {
             if (_fika.Downed(Player)) return "LocalDowned";
             if (Player.HealthController?.IsAlive != true) return "LocalDead";
-            if (!RuntimeRules.IsLocalRaid(_fika.Headless, world is HideoutGameWorld, Player.IsYourPlayer, Player.IsAI,
+            if (!RuntimeRules.IsLocalRaid(_fika.Headless, world is HideoutGameWorld, Player.IsYourPlayer, _fika.IsAI(Player),
                 world.MainPlayer == Player, Player.gameObject.activeInHierarchy, true, false, Owner.State == PlayerOwner.EState.Started, false)) return "OwnershipOrLifecycle";
             if (!_settings.Enabled.Value) return "Disabled";
             if (_silent) return "SilenceToggle";
@@ -332,20 +334,37 @@ namespace ImmersiveVoice
             _inflight = cue;
             _automatic = true;
             _automaticPlayed = false;
+            _playbackFaulted = false;
             _attempts++;
             if (cue != null && cue.RequestId == 0) cue.RequestId = _journal.Request();
             NativePlayback.Begin(_speaker, (EPhraseTrigger)cue.Phrase, cue, CanYieldBreath(cue) ? _speaker.Clip : null);
             try
             {
                 if (Tracing) Trace(FormattableString.Invariant($"Decision=Attempt Request={cue?.RequestId} Voice={_speaker.PlayerVoice} Intent={cue?.Intent} Phrase={(EPhraseTrigger)(cue?.Phrase ?? 0)} Mode={_director.Context.Mode} HealthEpisode={_director.HealthEpisode} HealthEscalation={_policy.HealthEscalation(cue, Time.time)}"));
-                speak();
+                Exception error = NativePlayback.TrySpeak(speak);
+                if (error != null)
+                {
+                    _playbackFaulted = true;
+                    _playbackRecovery.Complete(true, _automaticPlayed);
+                    if (Tracing) Trace($"Event=PlaybackFault Request={cue.RequestId} Phrase={(EPhraseTrigger)cue.Phrase} Count={_playbackRecovery.Failures} " + FaultDetails.Format(error));
+                    _log.LogWarning("Automatic phrase failed; native state was left untouched. " + FaultDetails.Format(error));
+                    // No polling-rate retries of a broken audio path. Isolated
+                    // failures can recover; repeated failures silence automation.
+                    if (_playbackRecovery.Silenced)
+                    {
+                        _silent = true;
+                        _director.Suspend();
+                        if (Tracing) Trace("Event=PlaybackRecovery State=Silenced Reason=RepeatedNativeExceptions");
+                    }
+                }
+                else _playbackRecovery.Complete(false, _automaticPlayed);
             }
             finally
             {
                 NativePlayback.End();
                 _automatic = false; _inflight = null;
                 if (!_automaticPlayed) _director.FailedHealth(cue);
-                if (Tracing) Trace($"Event=PlaybackResult Request={cue.RequestId} Phrase={(EPhraseTrigger)cue.Phrase} Confirmed={_automaticPlayed} Reason={(_automaticPlayed ? "SpeakerConfirmed" : NativePlayback.Result)} NativeReached={NativePlayback.Reached} Tags={(int)NativePlayback.Tags} FemaleGateYielded={NativePlayback.FemaleGateYielded} BreathYielded={NativePlayback.BreathYielded} CurrentPhrase={_lastPhrase} QueuedPhrase={_speaker.QueuedEvent} HealthState={_director.HealthState}");
+                if (Tracing) Trace($"Event=PlaybackResult Request={cue.RequestId} Phrase={(EPhraseTrigger)cue.Phrase} Confirmed={_automaticPlayed} Reason={(_automaticPlayed ? "SpeakerConfirmed" : _playbackFaulted ? "NativePlaybackException" : NativePlayback.Result)} NativeException={_playbackFaulted} NativeReached={NativePlayback.Reached} Tags={(int)NativePlayback.Tags} FemaleGateYielded={NativePlayback.FemaleGateYielded} BreathYielded={NativePlayback.BreathYielded} CurrentPhrase={_lastPhrase} QueuedPhrase={_speaker.QueuedEvent} HealthState={_director.HealthState}");
             }
             return _automaticPlayed;
         }
@@ -382,8 +401,8 @@ namespace ImmersiveVoice
             catch (Exception ex)
             {
                 _silent = true;
-                if (Tracing) Trace("Event=Fault Component=VoiceObservation Reason=" + ex.GetType().Name);
-                _log.LogError("Voice observation failed; automatic voice silenced for this raid. " + ex.Message);
+                if (Tracing) Trace("Event=Fault Component=VoiceObservation " + FaultDetails.Format(ex));
+                _log.LogError("Voice observation failed; automatic voice silenced for this raid. " + FaultDetails.Format(ex));
             }
         }
 

@@ -143,7 +143,7 @@ namespace ImmersiveVoice
             HeavyBleeding = _player?.HealthController?.FindActiveEffect<IHeavyBleeding>() != null,
             ArmFracture = HasFracture(EBodyPart.LeftArm) || HasFracture(EBodyPart.RightArm),
             LegFracture = HasFracture(EBodyPart.LeftLeg) || HasFracture(EBodyPart.RightLeg),
-            NearbyTeammate = _squad.Nearby(Time.time, 12f) || (_ally?.Player != null && !_ally.Player.IsAI
+            NearbyTeammate = _squad.Nearby(Time.time, 12f) || (_ally?.Player != null && !_fika.IsAI(_ally.Player)
                 && _ally.Alive && Time.time - _lastAllySeen <= 1f),
             RecentTeammate = _squad.ReportNearby(Time.time)
         };
@@ -361,7 +361,7 @@ namespace ImmersiveVoice
         {
             VisibleContact recipient = _ally;
             return MedicalRequestPolicy.Recipient(recipient?.Player != null,
-                recipient?.Player != null && !recipient.Player.IsAI, recipient?.Alive == true, now - _lastAllySeen)
+                recipient?.Player != null && !_fika.IsAI(recipient.Player), recipient?.Alive == true, now - _lastAllySeen)
                 ? recipient : null;
         }
 
@@ -413,7 +413,7 @@ namespace ImmersiveVoice
 
         private void Observe(VisibleContact seen, float now, bool focused = true)
         {
-            if (ViewProbe.RecognizableEnemy(_player, seen))
+            if (ViewProbe.RecognizableEnemy(_player, seen, _fika))
             {
                 if (Tracing && !_memory.IsHostile(seen.Id, now)) Record("Event=VisualThreat Decision=Observed Reason=VisibleFaction");
                 _memory.Hostile(seen.Id, now);
@@ -820,9 +820,10 @@ namespace ImmersiveVoice
             _squad.Pause(Time.time, manual: true);
             _npc.Pause();
         }
-        public void Completed(Reaction r, bool played)
+        public void Completed(Reaction r, bool played, bool playbackFaulted)
         {
             if (played) { _queue.Remove(r); _played[(int)r.Kind]++; Trace(r, "Played", "SpeakerConfirmed"); }
+            else if (playbackFaulted) { _queue.Remove(r); Dropped(r, "NativePlaybackException"); }
             else { r.ReadyAt = Time.time + 1.25f; Waiting(r, "NativePlaybackRejected"); }
         }
         public void Unavailable(Reaction r) { _queue.Remove(r); Dropped(r, r.InvalidReason ?? "NoMatchingBank"); }

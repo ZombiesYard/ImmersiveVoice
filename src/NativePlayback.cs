@@ -3,6 +3,7 @@ using BepInEx.Bootstrap;
 using BepInEx.Logging;
 using EFT;
 using HarmonyLib;
+using UnityEngine;
 
 namespace ImmersiveVoice
 {
@@ -47,6 +48,14 @@ namespace ImmersiveVoice
             FemaleGateYielded = BreathYielded = Reached = false; Result = "NativePlayNotObserved"; Tags = 0;
         }
         public static void End() { _speaker = null; _breath = null; _event = false; }
+        public static Exception TrySpeak(Action speak)
+        {
+            // Only the synchronous automatic call is isolated. Native/manual
+            // calls and unrelated director errors retain their normal handling.
+            try { speak(); return null; }
+            catch (NullReferenceException ex) { return ex; }
+            catch (MissingReferenceException ex) { return ex; }
+        }
         private static bool Own(BaseSpeaker speaker, EPhraseTrigger phrase) => _speaker != null
             && ReferenceEquals(speaker, _speaker) && phrase == _phrase;
         private static void AfterFemaleGate(EPhraseTrigger __0, ref bool __result)

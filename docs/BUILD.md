@@ -14,6 +14,8 @@ dotnet build src/ImmersiveVoice.csproj -c Release "-p:GameRoot=$gameRoot" -p:Deb
 dotnet run --project tests/Tests.csproj -c Release "-p:GameRoot=$gameRoot" -- "$gameRoot" src/bin/Release/netstandard2.1/ImmersiveVoice.dll
 ```
 
+The DLL version excludes checkout-specific commit IDs. The installation instructions and corresponding-source archive record the reviewed public release commit.
+
 Only `ImmersiveVoice.dll` belongs in the client plugin directory. Do not distribute reference DLLs or debug symbols.
 
 ## Checks without game files

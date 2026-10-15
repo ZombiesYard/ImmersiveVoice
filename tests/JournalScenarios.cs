@@ -37,6 +37,16 @@ internal static class JournalScenarios
             journal.Record(3, "Event=TooLate");
             check(File.ReadAllLines(journal.FilePath).Length == 4, "late callbacks after disposal cannot reopen the journal");
 
+            journal = new VoiceJournal(Path.Combine(root, "fault")); journal.Enable(true);
+            try { throw new NullReferenceException("private-message-token\nEvent=Injected"); }
+            catch (Exception error) { journal.Record(4, "Event=Fault Component=Session " + FaultDetails.Format(error)); }
+            journal.Dispose();
+            check(journal.WaitForExit(5000), "session fault details survive disposal in the independent journal");
+            string fault = File.ReadAllText(journal.FilePath);
+            check(fault.Contains("Reason=NullReferenceException") && fault.Contains("JournalScenarios.Run")
+                && !fault.Contains("private-message-token") && !fault.Contains("Event=Injected") && !fault.Contains(root),
+                "persistent fault call sites exclude exception messages, arbitrary records and file paths");
+
             journal = new VoiceJournal(Path.Combine(root, "burst")); journal.Enable(true);
             const int count = 20000;
             for (int i = 0; i < count; i++) journal.Record(i, "Event=Burst Index=" + i);

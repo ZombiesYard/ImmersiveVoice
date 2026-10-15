@@ -37,3 +37,11 @@ python tools/summarize_voice_log.py PATH_TO_VOICE_LOG --timeline
 `NpcHeard`表示音频观察结果，不能计作本机已经说话。`NpcEpisode`连接同一互动；实际发声仍以带有`Source=Auto`的`Played`记录为准。摘要中的`npc_hearing_decisions`汇总听音和接纳原因。
 
 `NpcHeard`还记录NPC角色、关系和来话语义；`NpcDecision`记录等待动作、选定反应及回合限制。`NpcSummary`包含固定容量、接收次数、4Hz采样次数和NPC Tick平均/最大耗时；这不包含整个Mod或游戏音频系统的全部开销。`NpcCapacity`汇总容量丢弃数；`NpcFault`表示本局NPC模块因异常停止，其余导演功能继续。摘要新增`npc_relations`、`npc_dialogue_decisions`和`npc_performance`。
+
+## 2.13.1诊断补充
+
+`NpcSummary`的`Callbacks`为模块启用时进入采集入口的次数，`Captures`为过滤后接收次数，`NpcCaptures`为其中NPC来话。`RejectedSpeaker`（本机或对象不可用）、`RejectedAudio`、`OutOfRange`、`HumanIgnored`、`BreathIgnored`是累计过滤计数。容量不足另见`NpcCapacity`。每分钟汇总，不逐条记录远处语音。旧日志缺少这些字段时摘要显示null，不能解释成零。
+
+`PlaybackFault`包含请求、短语、异常次数、`Reason`和`Stack`。`Stack`使用“类型.方法@IL位置”，省略异常消息、参数及文件路径；最多16帧、3层异常并有长度上限。单次空引用/Unity对象失效不再立即结束整个导演，失败的事件候选以`NativePlaybackException`取消；已有原生忙碌/无素材拒绝仍走原规则。连续三次原生异常触发`PlaybackRecovery State=Silenced`，成功播放会清除累计异常。`Fault`和`NpcFault`也保留调用位置。摘要中的`fault_counts`统计全部故障，`fault_details`最多保留32条明细。
+
+`Confirmed`只表示已观察到原生说话回调。若回调之后又发生异常，可能同时出现`Confirmed=True`和`NativeException=True`；不能据此保证另一端收到声音。主日志被后续启动覆盖后，应保留对应独立战局日志供排查。

@@ -412,7 +412,28 @@ Check(!phraseAudio.IsVirtual && phraseAudio.Parameters.Count == 1
     && phraseAudio.Parameters[0].ParameterType.Name == "TaggedClip"
     && Calls(phraseAudio, "EFT.Player::PlaySpeechFromTime")
     && Calls(Method(game, "EFT.Player", "OnPhraseTold"), "EFT.Player::PlayPhraseClip"),
-    "NPC observation uses the actual audio endpoint shared by native and Fika received speech");
+    "native and Fika received speech share the same audio forwarding path");
+var audioEndpoint = Method(game, "EFT.Player", "PlaySpeechFromTime");
+Check(!audioEndpoint.IsVirtual && audioEndpoint.Parameters.Count == 2
+    && audioEndpoint.Parameters[0].ParameterType.Name == "TaggedClip"
+    && audioEndpoint.Parameters[1].ParameterType.FullName == "System.Single"
+    && Calls(audioEndpoint, "BetterSource::Play")
+    && Method(plugin, "ImmersiveVoice.SpeechObservation", "Install").Body.Instructions.Any(i =>
+        i.Operand is string target && target == "PlaySpeechFromTime"),
+    "observation patches the installed audio implementation instead of its inlineable forwarding stub");
+Check(Type(fika, "Fika.Core.Main.Players.FikaPlayer").Fields.Any(f => f.Name == "IsObservedAI"
+    && f.FieldType.FullName == "System.Boolean" && !f.IsStatic),
+    "remote NPC identity matches the installed Fika replicated boolean field");
+Check(!Walk(plugin.MainModule.Types).Where(t => t.FullName != "ImmersiveVoice.FikaBridge")
+    .SelectMany(t => t.Methods).Where(m => m.HasBody).Any(m => Calls(m, "EFT.Player::get_IsAI")),
+    "NPC hearing, visual recognition, squad membership and ownership all use the Fika-aware identity adapter");
+Check(Calls(Method(plugin, "ImmersiveVoice.FikaBridge", "IsAI"), "Func`2")
+    && !Calls(Method(plugin, "ImmersiveVoice.FikaBridge", "IsAI"), "FieldInfo::GetValue"),
+    "frequent AI classification uses a cached delegate without reflection boxing");
+Check(Calls(Method(plugin, "ImmersiveVoice.VoiceSession", "Attempt"), "NativePlayback::TrySpeak")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceSession", "Attempt"), "NativePlayback::End")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceSession", "Fault"), "FaultDetails::Format"),
+    "automatic audio failures are isolated, scoped state is cleaned up and session faults retain call sites");
 Check(Type(game, "EFT.Player").Fields.Any(f => f.Name == "_speechSource" && f.FieldType.Name == "BetterSource")
     && Type(game, "BetterSource").Properties.Any(p => p.Name == "OcclusionVolumeFactor")
     && Type(game, "BetterSource").Properties.Any(p => p.Name == "OcclusionRolloffScale"),

@@ -2,11 +2,11 @@
 
 让角色根据战斗、动作和队友行为，自动说出当前声线已有的台词。
 
-**版本：2.13.0（NPC互动测试版） · 作者：ZombiesYard · GPL-3.0-only**
+**版本：2.13.1（NPC互动测试版） · 作者：ZombiesYard · GPL-3.0-only**
 
 适用于 **SPT 4.1.6 / EFT 0.16.9.40743**，联机接口按 **Fika 2.4.3** 验证。支持单人PMC、Player Scav和最多4名人类玩家的Fika小队。其他版本的兼容性未确认。
 
-[下载](https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.13.0) · [安装与设置](#安装) · [日志与反馈](docs/DIAGNOSTICS.md) · [源码构建](docs/BUILD.md) · [更新记录](CHANGELOG.md)
+[下载](https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.13.1) · [安装与设置](#安装) · [日志与反馈](docs/DIAGNOSTICS.md) · [源码构建](docs/BUILD.md) · [更新记录](CHANGELOG.md)
 
 ## 能做什么
 
@@ -23,7 +23,7 @@
 ## 安装
 
 1. 退出游戏客户端。
-2. 从Releases下载 `ImmersiveVoice-2.13.0.zip`，解压到包含 `EscapeFromTarkov.exe` 的客户端根目录。
+2. 从Releases下载 `ImmersiveVoice-2.13.1.zip`，解压到包含 `EscapeFromTarkov.exe` 的客户端根目录。
 3. 确认文件位于 `BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll`，然后启动游戏。
 4. 如有F12配置菜单，打开 **Immersive Voice** 调整设置；也可以在退出游戏后编辑自动生成的配置文件。
 

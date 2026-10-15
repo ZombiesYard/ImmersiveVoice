@@ -18,7 +18,7 @@ class VoiceLogTests(unittest.TestCase):
             "[AutoVoice] Session=a Event=NpcHeard SourceVoice=Scav_1 Relation=Neutral HeardPhrase=FollowMe Decision=Observed Reason=AudibleNpcSpeech",
             "[AutoVoice] Session=a Event=NpcDecision HeardPhrase=FollowMe Decision=Waiting Reason=AwaitMatchingContextOrAction",
             "[AutoVoice] Session=a Event=NpcDecision HeardPhrase=FollowMe Decision=Candidate Reason=Following",
-            "[AutoVoice] Session=a Event=NpcSummary Ticks=100 Captures=5 Samples=40 MeanMs=0.01 MaxMs=0.05 Capacity=8",
+            "[AutoVoice] Session=a Event=NpcSummary Ticks=100 Captures=5 NpcCaptures=4 Callbacks=20 RejectedSpeaker=10 RejectedAudio=1 OutOfRange=1 HumanIgnored=2 BreathIgnored=1 Samples=40 MeanMs=0.01 MaxMs=0.05 Capacity=8",
         ])
         session = report["sessions"]["a"]
         self.assertEqual(session["npc_relations"], {"Neutral": 1})
@@ -26,6 +26,31 @@ class VoiceLogTests(unittest.TestCase):
         self.assertEqual(session["npc_performance"]["Samples"], 40)
         self.assertEqual(session["npc_performance"]["Capacity"], 8)
         self.assertEqual(session["npc_performance"]["MeanMs"], 0.01)
+        self.assertEqual(session["npc_performance"]["Callbacks"], 20)
+        self.assertEqual(session["npc_performance"]["NpcCaptures"], 4)
+        self.assertEqual(session["npc_performance"]["HumanIgnored"], 2)
+
+    def test_native_fault_recovery_and_session_faults_remain_visible(self):
+        report = module.summarize([
+            "[AutoVoice] Session=a Time=1 Request=4 Decision=Attempt Voice=Custom Phrase=OnWeaponReload",
+            "[AutoVoice] Session=a Time=1 Request=4 Event=PlaybackFault Phrase=OnWeaponReload Count=1 Reason=NullReferenceException Stack=Speaker.Play@12",
+            "[AutoVoice] Session=a Time=1 Request=4 Event=PlaybackResult Confirmed=False Reason=NativePlaybackException NativeException=True",
+            "[AutoVoice] Session=a Time=1 Request=4 Decision=Suppressed Reason=NativePlaybackException",
+            "[AutoVoice] Session=a Time=5 Request=5 Decision=Attempt Voice=Custom Phrase=OnFirstContact",
+            "[AutoVoice] Session=a Time=5 Request=5 Decision=Played Voice=Custom Phrase=OnFirstContact Source=Auto HasAudio=True",
+            "[AutoVoice] Session=a Time=10 Event=Fault Component=Session Reason=InvalidOperationException Stack=Director.Tick@6",
+        ], timeline=True)
+        session = report["sessions"]["a"]
+        self.assertEqual(session["fault_counts"], {"PlaybackFault:NullReferenceException": 1, "Fault:InvalidOperationException": 1})
+        self.assertEqual(session["fault_details"][0]["Stack"], "Speaker.Play@12")
+        self.assertEqual(session["requests"]["4"]["last_decision"], "Suppressed")
+        self.assertFalse(session["requests"]["4"]["last_playback_confirmed"])
+        self.assertEqual(report["voices"]["Custom"]["automatic_plays"], 1)
+        old = module.summarize(["[AutoVoice] Session=old Event=NpcSummary Captures=0"])["sessions"]["old"]
+        self.assertIsNone(old["npc_performance"]["Callbacks"])
+        flooded = module.summarize(["[AutoVoice] Session=a Event=NpcFault Reason=Exception"] * 100)["sessions"]["a"]
+        self.assertEqual(len(flooded["fault_details"]), 32)
+        self.assertEqual(flooded["fault_counts"]["NpcFault:Exception"], 100)
 
     def test_npc_observations_are_not_counted_as_local_voice_plays(self):
         report = module.summarize([

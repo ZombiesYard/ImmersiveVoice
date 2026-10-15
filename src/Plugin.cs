@@ -17,7 +17,7 @@ namespace ImmersiveVoice
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "local.immersivevoice";
-        public const string Version = "2.13.0";
+        public const string Version = "2.13.1";
         private static Plugin _instance;
         private Harmony _harmony;
         private Settings _settings;
@@ -75,7 +75,7 @@ namespace ImmersiveVoice
             try
             {
                 if (plugin._fika.Headless || owner == null || owner is HideoutPlayerOwner
-                    || owner.Player == null || !owner.Player.IsYourPlayer || owner.Player.IsAI) return;
+                    || owner.Player == null || !owner.Player.IsYourPlayer || plugin._fika.IsAI(owner.Player)) return;
                 if (plugin._session != null && plugin._session.Owner == owner
                     && plugin._session.Panel == __instance) return;
                 plugin.StopSession();

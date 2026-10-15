@@ -58,6 +58,7 @@ namespace ImmersiveVoice
         private bool _faulted;
         private long _ticks, _elapsed, _maximum;
         private int _captures, _samples;
+        private int _callbacks, _rejectedSpeaker, _rejectedAudio, _outOfRange, _humanIgnored, _breathIgnored, _npcCaptures;
         private float _summaryAt;
         public int Version => _memory.Version;
         public float ReadyAt => _memory.ReadyAt;
@@ -104,14 +105,23 @@ namespace ImmersiveVoice
         }
         public void Capture(Player player, TaggedClip clip, BetterSource source)
         {
-            if (!_active || !Present(player) || clip?.Clip == null || source == null
-                || !(clip.Length > NpcReplyRules.ProbeDelay) || !(clip.Length <= 30f)
-                || Distance(player) > NpcReplyRules.Range) return;
-            if (!player.IsAI && (!Available(player) || !ViewProbe.IsAlly(_local, player))) return;
+            if (!_active) return;
+            try { CaptureCore(player, clip, source); }
+            catch (Exception ex) { Fail(ex, "Capture"); }
+        }
+        private void CaptureCore(Player player, TaggedClip clip, BetterSource source)
+        {
+            _callbacks++;
+            if (!Present(player)) { _rejectedSpeaker++; return; }
+            if (clip?.Clip == null || source == null
+                || !(clip.Length > NpcReplyRules.ProbeDelay) || !(clip.Length <= 30f)) { _rejectedAudio++; return; }
+            if (Distance(player) > NpcReplyRules.Range) { _outOfRange++; return; }
+            bool ai = _fika.IsAI(player);
+            if (!ai && (!Available(player) || !ViewProbe.IsAlly(_local, player))) { _humanIgnored++; return; }
             EPhraseTrigger phrase = Identify(player, clip);
             // Breathing is not dialogue and must not flood diagnostics or memory.
-            if (phrase == EPhraseTrigger.OnBreath) return;
-            if (!player.IsAI && (!Pending || PeerResponse(phrase) == NpcResponse.None)) return;
+            if (phrase == EPhraseTrigger.OnBreath) { _breathIgnored++; return; }
+            if (!ai && (!Pending || PeerResponse(phrase) == NpcResponse.None)) { _humanIgnored++; return; }
             int free = -1;
             for (int i = 0; i < _probes.Length; i++)
             {
@@ -121,6 +131,7 @@ namespace ImmersiveVoice
             if (free < 0) { _capacityDrops++; return; }
             Probe p = _probes[free];
             p.Player = player; p.Clip = clip; p.Source = source; p.Phrase = phrase; p.Started = Time.time; _captures++;
+            if (ai) _npcCaptures++;
         }
         private Peer Remember(Player player, float now)
         {
@@ -141,8 +152,7 @@ namespace ImmersiveVoice
             try { return TickCore(now, context, tracing); }
             catch (Exception ex)
             {
-                Pause(); _faulted = true;
-                _trace("Event=NpcFault Reason=" + ex.GetType().Name);
+                Fail(ex, "Tick");
                 return false;
             }
             finally
@@ -154,10 +164,15 @@ namespace ImmersiveVoice
                     if (_ticks >= 100 && now >= _summaryAt)
                     {
                         _summaryAt = now + 60f;
-                        _trace(FormattableString.Invariant($"Event=NpcSummary Ticks={_ticks} Captures={_captures} Samples={_samples} MeanMs={_elapsed * 1000d / Stopwatch.Frequency / _ticks:F4} MaxMs={_maximum * 1000d / Stopwatch.Frequency:F4} Capacity={NpcDialogueRules.Capacity}"));
+                        _trace(FormattableString.Invariant($"Event=NpcSummary Ticks={_ticks} Captures={_captures} NpcCaptures={_npcCaptures} Callbacks={_callbacks} RejectedSpeaker={_rejectedSpeaker} RejectedAudio={_rejectedAudio} OutOfRange={_outOfRange} HumanIgnored={_humanIgnored} BreathIgnored={_breathIgnored} Samples={_samples} MeanMs={_elapsed * 1000d / Stopwatch.Frequency / _ticks:F4} MaxMs={_maximum * 1000d / Stopwatch.Frequency:F4} Capacity={NpcDialogueRules.Capacity}"));
                     }
                 }
             }
+        }
+        private void Fail(Exception error, string stage)
+        {
+            Pause(); _faulted = true;
+            _trace("Event=NpcFault Stage=" + stage + " " + FaultDetails.Format(error));
         }
         private bool TickCore(float now, BarkContext context, bool tracing)
         {
@@ -168,7 +183,7 @@ namespace ImmersiveVoice
                 if (p.Player == null || now < p.Started + NpcReplyRules.ProbeDelay) continue;
                 string reason = !Present(p.Player) ? "SpeakerUnavailable" : HearingReason(p);
                 NpcRelation relation = Relation(p.Player, now);
-                if (reason == null && !p.Player.IsAI)
+                if (reason == null && !_fika.IsAI(p.Player))
                 {
                     if (Pending && p.Started >= _target.HeardAt
                         && NpcDialogueRules.PeerAnswer(_response, PeerResponse(p.Phrase))
@@ -178,7 +193,7 @@ namespace ImmersiveVoice
                         foreach (Peer peer in _peers) peer.Open = false;
                     }
                 }
-                else if (p.Player.IsAI)
+                else if (_fika.IsAI(p.Player))
                 {
                     if (reason == null)
                     {
@@ -293,7 +308,7 @@ namespace ImmersiveVoice
             if (!_active || !witnessed || info.Damage <= 0 || !VoiceDirector.IsCombatDamage(info.DamageType)) return;
             IPlayer attacker = info.Player?.iPlayer;
             if (attacker == null || attacker.ProfileId == _local.ProfileId || ViewProbe.IsAlly(_local, attacker)) return;
-            if (!Available(victim) || !victim.IsAI || Distance(victim) > NpcReplyRules.Range
+            if (!Available(victim) || !_fika.IsAI(victim) || Distance(victim) > NpcReplyRules.Range
                 || Relation(victim, Time.time) == NpcRelation.Hostile) return;
             // The hit can precede the first request for help. Reuse the director's
             // witnessed victim instead of requiring an earlier voice callback.
@@ -317,7 +332,7 @@ namespace ImmersiveVoice
                 p.Clip.Volume, p.Source.OcclusionVolumeFactor, p.Source.FadeFactor);
         }
         public bool Valid(int version, float now, BarkContext context) => _active && _memory.Valid(version, now)
-            && _target != null && Available(_target.Player) && _target.Player.IsAI && Distance(_target.Player) <= NpcReplyRules.Range
+            && _target != null && Available(_target.Player) && _fika.IsAI(_target.Player) && Distance(_target.Player) <= NpcReplyRules.Range
             && Select(_target, now, context) == _response;
         public string Waiting(float now) => _memory.Waiting(now);
         public void Spoken(float now, float cooldown)

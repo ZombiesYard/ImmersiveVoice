@@ -14,9 +14,24 @@ namespace EFT
     {
         protected BetterSource _speechSource = new BetterSource();
         public int PlayCount;
+        public bool IsAI;
+        public bool ThrowOnAudio;
+        public bool AudioEnabled = true;
+        public float LastStart;
+        public System.Action DuringAudio;
         public BetterSource Source => _speechSource;
-        [MethodImpl(MethodImplOptions.NoInlining)]
-        public void PlayPhraseClip(TaggedClip clip) { PlayCount++; }
+        // Intentionally inlineable, matching the installed native forwarding method.
+        public void PlayPhraseClip(TaggedClip clip) { PlaySpeechFromTime(clip, 0f); }
+        public void PlaySpeechFromTime(TaggedClip clip, float time)
+        {
+            if (ThrowOnAudio) throw new System.NullReferenceException("private-message-token");
+            if (clip == null) throw new System.ArgumentNullException(nameof(clip));
+            if (time < 0) throw new System.ArgumentOutOfRangeException(nameof(time));
+            if (!AudioEnabled) return;
+            LastStart = time;
+            PlayCount++;
+            DuringAudio?.Invoke();
+        }
         [MethodImpl(MethodImplOptions.NoInlining)]
         public virtual void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, BaseSpeaker speaker)
         { PlayPhraseClip(clip); }
@@ -72,6 +87,8 @@ namespace Fika.Core.Main.Players
 {
     public class FikaPlayer : EFT.Player
     {
+        public bool IsObservedAI;
+        public bool Downed { get; set; }
         [MethodImpl(MethodImplOptions.NoInlining)]
         public override void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, EFT.BaseSpeaker speaker)
         { base.OnPhraseTold(phrase, clip, bank, speaker); }
@@ -80,6 +97,24 @@ namespace Fika.Core.Main.Players
     {
         [MethodImpl(MethodImplOptions.NoInlining)]
         public override void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, EFT.BaseSpeaker speaker)
-        { PlayPhraseClip(clip); }
+        { if (!Fika.Core.Main.Utils.FikaBackendUtils.IsHeadless) PlayPhraseClip(clip); }
     }
+}
+
+namespace UnityEngine
+{
+    public static class Application { public static bool isBatchMode; }
+    public class MissingReferenceException : System.Exception { }
+}
+namespace Fika.Core.Main.Utils
+{
+    public static class FikaBackendUtils
+    {
+        public static bool IsHeadless { get; set; }
+        public static bool IsServer { get; set; }
+    }
+}
+namespace Fika.Core.Main.GameMode
+{
+    public class CoopGame { public void Extract(Fika.Core.Main.Players.FikaPlayer player) { } }
 }

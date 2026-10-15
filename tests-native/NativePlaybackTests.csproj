@@ -11,6 +11,8 @@
     <FrameworkRoot Condition="'$(FrameworkRoot)' == ''">$(SystemRoot)/Microsoft.NET/Framework64/v4.0.30319</FrameworkRoot>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="../src/FikaBridge.cs" Link="FikaBridge.cs" />
+    <Compile Include="../src/FaultDetails.cs" Link="FaultDetails.cs" />
     <Compile Include="../src/NativePlayback.cs" Link="NativePlayback.cs" />
     <Compile Include="../src/SpeechObservation.cs" Link="SpeechObservation.cs" />
     <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />

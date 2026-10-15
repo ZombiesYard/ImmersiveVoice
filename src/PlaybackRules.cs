@@ -1,5 +1,16 @@
 namespace ImmersiveVoice
 {
+    internal sealed class PlaybackRecovery
+    {
+        public int Failures { get; private set; }
+        public bool Silenced => Failures >= 3;
+        public void Complete(bool faulted, bool confirmed)
+        {
+            if (faulted) Failures = System.Math.Min(3, Failures + 1);
+            else if (confirmed) Failures = 0;
+        }
+    }
+
     internal static class PlaybackRules
     {
         public const float BreathGrace = 0.8f, LongBreath = 3f;

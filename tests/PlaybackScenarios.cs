@@ -4,6 +4,17 @@ internal static class PlaybackScenarios
 {
     public static void Run(Action<bool, string> check)
     {
+        var recovery = new PlaybackRecovery();
+        recovery.Complete(true, false); recovery.Complete(true, false);
+        check(!recovery.Silenced && recovery.Failures == 2, "isolated native audio failures do not disable the entire raid");
+        recovery.Complete(false, false);
+        check(recovery.Failures == 2, "busy or missing audio cannot erase unresolved native failures");
+        recovery.Complete(false, true);
+        check(recovery.Failures == 0, "a successful later phrase resets the native exception budget");
+        for (int i = 0; i < 10; i++) recovery.Complete(true, true);
+        check(recovery.Silenced && recovery.Failures == 3,
+            "repeated native exceptions are bounded even when thrown after a speaker confirmation");
+        check(!new PlaybackRecovery().Silenced, "a new raid starts with an independent exception budget");
         var contact = new VoiceCue { Key = "contact:a", Group = "contact", Intent = VoiceIntent.Contact };
         var health = new VoiceCue { Key = "health:a", Group = "health", Intent = VoiceIntent.NativeContext };
         var heal = new VoiceCue { Key = "heal", Group = "heal", Intent = VoiceIntent.Healing };

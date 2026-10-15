@@ -106,13 +106,13 @@ namespace ImmersiveVoice
                 Alive = target.HealthController.IsAlive, Ally = IsAlly(local, target), Distance = nearest };
         }
 
-        public static bool RecognizableEnemy(Player local, VisibleContact seen)
+        public static bool RecognizableEnemy(Player local, VisibleContact seen, FikaBridge fika)
         {
             Player target = seen?.Player;
             if (target == null || !seen.Alive) return false;
             WildSpawnType? role = target.Profile?.Info?.Settings?.Role;
             bool ordinaryScav = role == WildSpawnType.assault || role == WildSpawnType.cursedAssault || role == WildSpawnType.marksman;
-            return VisualRules.RecognizableEnemy(seen.Ally, target.IsAI,
+            return VisualRules.RecognizableEnemy(seen.Ally, fika.IsAI(target),
                 local.Side == EPlayerSide.Bear || local.Side == EPlayerSide.Usec,
                 target.Side == EPlayerSide.Bear || target.Side == EPlayerSide.Usec, ordinaryScav);
         }

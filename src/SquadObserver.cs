@@ -51,7 +51,7 @@ namespace ImmersiveVoice
         public bool Enabled => !_disposed && !_faulted && _settings.Director.Value
             && (_settings.SquadCoordination.Value || _settings.TeamReplies.Value || _settings.FriendlyDown.Value) && _fika.Mode(_local) != VoiceMode.Solo;
         public bool OthersSpeaking(float now) => _active && now < _othersUntil;
-        private bool Member(Player p) => p != null && p != _local && !p.IsAI && !p.IsYourPlayer
+        private bool Member(Player p) => p != null && p != _local && !_fika.IsAI(p) && !p.IsYourPlayer
             && !string.IsNullOrEmpty(p.ProfileId) && p.GameWorld == _world && ViewProbe.IsAlly(_local, p);
         private bool Available(Peer p) => Member(p.Player) && p.Player.gameObject.activeInHierarchy
             && p.Player.HealthController?.IsAlive == true && !_fika.Downed(p.Player)
