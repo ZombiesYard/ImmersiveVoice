@@ -16,7 +16,9 @@ namespace ImmersiveVoice
         private sealed class Call
         {
             public DialogueTicket Ticket;
-            public int Phrase, Clip, Winner;
+            public int Phrase, Clip, Winner, ReplyClip;
+            public float RepliedAt;
+            public bool Replied;
             public float Opened, Until;
             public object Owner, Identity;
         }
@@ -35,7 +37,7 @@ namespace ImmersiveVoice
             if (found != null && (found.Ticket.Epoch != ticket.Epoch || ticket.Sequence <= found.Ticket.Sequence
                 || !ReferenceEquals(owner, found.Owner))) return false;
             target.Ticket = ticket; target.Phrase = phrase; target.Clip = clip;
-            target.Opened = now; target.Until = now + duration + 7f; target.Owner = owner; target.Identity = identity; target.Winner = 0;
+            target.Opened = now; target.Until = now + duration + 7f; target.Owner = owner; target.Identity = identity; target.Winner = 0; target.Replied = false;
             return true;
         }
         public DialogueTicket Match(int caller, int phrase, int clip, float heardAt, float now)
@@ -58,6 +60,23 @@ namespace ImmersiveVoice
                 if (c.Ticket.Same(ticket) && now < c.Until && c.Winner == 0)
                 { c.Winner = actor; return true; }
             return false;
+        }
+        // A grant is not proof of playback. Record only the winner's actual
+        // Covering callback; match it independently to native audio at the caller.
+        public bool Reply(DialogueTicket ticket, int actor, int phrase, int clip, float duration, float now)
+        {
+            if (phrase != 60 || clip < 0 || float.IsNaN(duration) || duration <= 0 || duration > 20) return false;
+            foreach (Call c in _calls)
+                if (c.Ticket.Same(ticket) && now < c.Until && SquadDialogue.ReadyCall(c.Phrase) && c.Winner == actor && actor > 0 && !c.Replied)
+                { c.Replied = true; c.ReplyClip = clip; c.RepliedAt = now; return true; }
+            return false;
+        }
+        public DialogueTicket MatchReply(int caller, int actor, int clip, float heardAt, float now)
+        {
+            foreach (Call c in _calls)
+                if (c.Ticket.Caller == caller && c.Replied && c.Winner == actor && c.ReplyClip == clip
+                    && now < c.RepliedAt + 2.5f && Math.Abs(c.RepliedAt - heardAt) <= 2f) return c.Ticket;
+            return default;
         }
         public void RemoveOwner(object owner)
         {
@@ -109,6 +128,7 @@ namespace ImmersiveVoice
                 : phrase == 33 || phrase == 34 ? SquadCommand.Advance : phrase == 32 ? SquadCommand.Retreat
                 : phrase == 47 ? SquadCommand.Regroup : phrase == 36 ? SquadCommand.Hold
                 : phrase == 75 ? SquadCommand.Praise : SquadCommand.None;
+        public static bool ReadyCall(int phrase) => phrase == 30 || phrase == 43 || phrase == 23 || phrase == 20;
         public static bool Tactical(SquadAction action) => action == SquadAction.Covering || action == SquadAction.Advancing
             || action == SquadAction.Retreating || action == SquadAction.RequestCover;
     }

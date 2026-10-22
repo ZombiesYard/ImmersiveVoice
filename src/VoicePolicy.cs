@@ -8,6 +8,7 @@ namespace ImmersiveVoice
     internal sealed class VoiceCue
     {
         public int RequestId;
+        public DialogueTicket Dialogue;
         public int Phrase;
         public string Key;
         public string Group;
@@ -76,7 +77,7 @@ namespace ImmersiveVoice
             float speechEnd = PlaybackRules.EventVoice(cue) ? Math.Min(_speechEnd, _breathYieldAt) : _speechEnd;
             if (now < speechEnd + 0.4f) return "SpeechPlaying";
             if (now < _retryAt) return "PlaybackBackoff";
-            if (!cue.Urgent && !VisualRules.TacticalReport(cue.Intent) && !SemanticVoice.NpcExchange(cue.Intent)
+            if (!cue.Urgent && !VisualRules.TacticalReport(cue.Intent) && !SemanticVoice.NpcExchange(cue.Intent) && cue.Intent != VoiceIntent.TeamReady
                 && now < _normalAt) return "GlobalGap";
             bool escalation = HealthEscalation(cue, now);
             if (!escalation && !Ready(_keys, cue.Key, now)) return "RecentSubject";

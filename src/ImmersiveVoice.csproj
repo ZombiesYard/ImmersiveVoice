@@ -5,7 +5,7 @@
     <NoStdLib>true</NoStdLib>
     <LangVersion>latest</LangVersion>
     <AssemblyName>ImmersiveVoice</AssemblyName>
-    <Version>2.14.0</Version>
+    <Version>2.15.0</Version>
     <Authors>ZombiesYard</Authors>
     <Copyright>Copyright (C) 2026 ZombiesYard</Copyright>
     <PackageLicenseExpression>GPL-3.0-only</PackageLicenseExpression>

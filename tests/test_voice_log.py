@@ -13,6 +13,18 @@ spec.loader.exec_module(module)
 
 
 class VoiceLogTests(unittest.TestCase):
+    def test_ready_evidence_is_separate_from_playback(self):
+        report = module.summarize([
+            "[AutoVoice] Session=a Event=SquadReadyEvidence Reason=HeardCoverConfirmed Caller=1 Epoch=10 Sequence=5 CoverActor=2",
+            "[AutoVoice] Session=a Event=SquadReadyEvidence Reason=WeaponRecovered Caller=1 Epoch=10 Sequence=5 CoverActor=2",
+            "[AutoVoice] Session=a Request=8 Event=SquadReady Decision=Suppressed Reason=NoMatchingBank DialogueCaller=1 DialogueEpoch=10 DialogueSequence=5 ReadyVersion=3",
+        ], timeline=True)
+        session = report["sessions"]["a"]
+        self.assertEqual(session["squad_ready_evidence"], {"HeardCoverConfirmed": 1, "WeaponRecovered": 1})
+        history = session["requests"]["8"]["history"][0]
+        self.assertEqual((history["DialogueCaller"], history["DialogueEpoch"], history["DialogueSequence"]), ("1", "10", "5"))
+        self.assertEqual(report["voices"], {})
+
     def test_squad_grant_is_not_counted_as_audible_playback(self):
         report = module.summarize([
             "[AutoVoice] Session=a Event=SquadDialogue Decision=Observed Reason=HeardCall Peer=1 Sequence=5",

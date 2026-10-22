@@ -185,6 +185,28 @@ internal static class DialogueNetworkScenarios
         clients[0].Publish(2, 31, 7, 1);
         check(!clients[0].Ready && clients[0].Sent == sent && clients[0].Winner(ticket, 30) == -1,
             "server disconnect clears client capability and forbids sends until a new handshake");
+        Event(host, new Fika.Core.Modding.Events.PeerConnectedEvent { NetworkManager = server, Peer = rejoined.Peer });
+        Fika.Core.Networking.TestWire.Pump(); UnityEngine.Time.time = 40;
+        var coverCalls = new DialogueTicket[4];
+        for (int i = 0; i < 4; i++) coverCalls[i] = clients[i].Publish(i + 2, 23, 100 + i, 1);
+        Fika.Core.Networking.TestWire.Pump();
+        for (int i = 0; i < 4; i++) clients[(i + 1) % 4].Request(coverCalls[i], (i + 1) % 4 + 2);
+        Fika.Core.Networking.TestWire.Pump(); UnityEngine.Time.time = 41;
+        for (int i = 0; i < 4; i++)
+        {
+            int winner = (i + 1) % 4 + 2;
+            check(!clients[i].MatchReply(i + 2, winner, 200 + i, 41, 41).Exists, "grant alone supplies no playback receipt, caller " + i);
+            clients[(i + 2) % 4].ReplySpoken(coverCalls[i], (i + 2) % 4 + 2, 60, 200 + i, 1);
+            clients[(i + 1) % 4].ReplySpoken(coverCalls[i], winner, 60, 200 + i, 1);
+        }
+        Fika.Core.Networking.TestWire.Pump();
+        for (int i = 0; i < 4; i++)
+        {
+            int winner = (i + 1) % 4 + 2;
+            check(clients[i].MatchReply(i + 2, winner, 200 + i, 41, 41.2f).Same(coverCalls[i]), "host relays the winning Covering receipt for its exact call, caller " + i);
+            check(!clients[i].MatchReply(i + 2, winner, 201 + i, 41, 41.2f).Exists, "other native clip cannot satisfy the relayed receipt, caller " + i);
+        }
+        check(!clients[0].Publish(2, 63, 300, 1).Exists, "Ready is terminal and emits no new call packet");
         for (int i = 0; i < 4; i++)
         {
             var manager = Fika.Core.Networking.TestWire.Clients[i];

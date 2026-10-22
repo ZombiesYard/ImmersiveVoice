@@ -63,6 +63,11 @@ foreach (bool femaleFirst in new[] { true, false })
         Check(speaker.Play(EPhraseTrigger.OnFirstContact, 0) == null && NativePlayback.Result == "NativeNoBankReturned",
             "compatibility cannot manufacture a missing bank");
         NativePlayback.End();
+        NativePlayback.Begin(speaker, (EPhraseTrigger)63, new VoiceCue { Intent = VoiceIntent.TeamReady }, null);
+        Check(speaker.Play((EPhraseTrigger)63, 0) == null && NativePlayback.Result == "NativeNoBankReturned",
+            "Ready closing with no exact bank remains silent even though other phrases exist");
+
+        NativePlayback.End();
 
         var breath = new TaggedClip(); speaker.Clip = breath; speaker.Busy = true; speaker.Importance = 1;
         NativePlayback.Begin(speaker, EPhraseTrigger.StartHeal, cue, breath);

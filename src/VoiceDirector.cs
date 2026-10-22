@@ -117,6 +117,15 @@ namespace ImmersiveVoice
         private static bool WoundCue(VoiceCue cue) => cue?.Group == "health"
             && (cue.Intent != VoiceIntent.NativeContext || HealthMeaning((EPhraseTrigger)cue.Phrase) != HealthCue.None);
         public bool OthersSpeaking(float now) => _squad.OthersSpeaking(now);
+        private ReadyWeaponState ReadyState => new ReadyWeaponState
+        {
+            Weapon = WeaponId, Magazine = _gun?.Item.GetCurrentMagazine()?.Id.ToString(),
+            Ammo = _gun == null ? 0 : _gun.Item.ChamberAmmoCount + _gun.Item.GetCurrentMagazineCount(),
+            Reloading = _gun != null && _gun.IsInReloadOperation(), Faulty = WeaponFaulty,
+            Operating = _squad.ReadyActive && _gun != null && (_gun.CurrentOperation is Player.FirearmController.MalfunctionOperation
+                || _gun.IsInSpawnOperation() || _gun.IsInRemoveOperation() || _gun.IsInInteractionStrictCheck()),
+            Damage = _damageVersion, Blocked = Context.Survival || !ReferenceEquals(_player.HandsController, _gun)
+        };
         private bool CoverWeaponReady => _gun != null && !_reload && !WeaponFaulty;
         public void ObservedHit(Player victim, DamageInfo info)
         {
@@ -211,6 +220,7 @@ namespace ImmersiveVoice
                         Offer(ReactionKind.Heal, "heal", 82, 0.3f, 7f, 12f, null, EPhraseTrigger.StartHeal);
                 }
             }
+            if (_squad.Enabled && _settings.TeamReplies.Value) _squad.ObserveWeapon(ReadyState, now);
             _malfunctions.Observe(WeaponId, WeaponFaulty);
             bool reloading = _gun != null && _gun.IsInReloadOperation();
             _reloadDecision.Update(now, reloading);
@@ -270,6 +280,10 @@ namespace ImmersiveVoice
                 Offer(ReactionKind.Squad, group, 60, 0.2f + (float)_random.NextDouble() * 0.2f,
                     decision.Reply ? 5f : 3f, decision.Reply ? 8f : SquadDialogue.Tactical(decision.Action) ? 8f : SquadMemory.DecisionGap, _squad.Subject(decision), phrase, intent, squad: decision);
             }
+            int readyVersion = _squad.TakeReady(now);
+            if (readyVersion != 0)
+                Offer(ReactionKind.SquadReady, "team-ready", 50, 0f, _squad.ReadyExpiry - now, 30f,
+                    WeaponId, EPhraseTrigger.Ready, VoiceIntent.TeamReady, readyVersion: readyVersion, dialogue: _squad.ReadyTicket);
             if (!squadContext.Survival && !OthersSpeaking(now))
             {
                 SquadLoss loss = _squad.Loss(now);
@@ -480,6 +494,7 @@ namespace ImmersiveVoice
                 if (!Collect || !IsCombatDamage(info.DamageType) || info.Damage <= 0f) return;
                 FlushDamage(Time.time);
                 _lastDamage = Time.time;
+                _squad.CancelReady("NewDamage");
                 _damageVersion++;
                 CancelTreatment("DamageAfterTreatment");
                 _queue.RemoveKind(ReactionKind.Recovery, "DamageAfterRequest");
@@ -603,7 +618,7 @@ namespace ImmersiveVoice
 
         private void Offer(ReactionKind kind, string group, int priority, float delay, float ttl,
             float repeat, string subject, EPhraseTrigger phrase, VoiceIntent intent = VoiceIntent.None,
-            bool friendlyDamage = false, int malfunctionEpisode = 0, SquadDecision squad = default, SquadLoss loss = default, int requestId = 0, int npcEpisode = 0)
+            bool friendlyDamage = false, int malfunctionEpisode = 0, SquadDecision squad = default, SquadLoss loss = default, int requestId = 0, int npcEpisode = 0, int readyVersion = 0, DialogueTicket dialogue = default)
         {
             if (!_settings.Director.Value) return;
             float now = Time.time;
@@ -613,10 +628,10 @@ namespace ImmersiveVoice
                 ExpiresAt = now + ttl, Subject = subject, RequiresEmpty = phrase == EPhraseTrigger.OnOutOfAmmo,
                 DamageVersion = _damageVersion, ExchangeVersion = _combat.ExchangeVersion, MalfunctionEpisode = malfunctionEpisode,
                 TreatmentVersion = _treatment.Version,
-                NpcEpisode = npcEpisode,
+                NpcEpisode = npcEpisode, ReadyVersion = readyVersion,
                 Squad = squad, Loss = loss,
                 FriendlyDamage = friendlyDamage,
-                Cue = new VoiceCue { RequestId = requestId == 0 ? _journal.Request() : requestId, Phrase = (int)phrase, Key = group + ":" + (subject ?? phrase.ToString()), Group = group,
+                Cue = new VoiceCue { Dialogue = squad.Reply ? squad.Dialogue : dialogue, RequestId = requestId == 0 ? _journal.Request() : requestId, Phrase = (int)phrase, Key = group + ":" + (subject ?? phrase.ToString()), Group = group,
                     Urgent = priority >= 82, Repeat = repeat, GroupGap = repeat, Intent = intent,
                     SemanticRepeat = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.NpcRetort ? _settings.CombatMin.Value
                         : intent == VoiceIntent.NpcMutter ? 60f : SemanticVoice.NpcExchange(intent) ? 15f : 0f } };
@@ -717,6 +732,10 @@ namespace ImmersiveVoice
                 case ReactionKind.Reply: return _settings.TeamReplies.Value && HasAlly() && _ally.Id == r.Subject;
                 case ReactionKind.MedicalRequest: return ValidMedicalRequest(r);
                 case ReactionKind.AfterTreatment: return ValidAfterTreatment(r);
+                case ReactionKind.SquadReady:
+                    _squad.ObserveWeapon(ReadyState, Time.time);
+                    r.InvalidReason = _squad.ReadyRejection(r.ReadyVersion, Time.time);
+                    return r.InvalidReason == null;
                 case ReactionKind.Squad: return ValidSquad(r);
                 case ReactionKind.FriendlyDown: return !Context.Survival && _squad.Valid(r.Loss, Time.time);
                 case ReactionKind.NpcReply:
@@ -819,7 +838,11 @@ namespace ImmersiveVoice
             else { r.ReadyAt = Time.time + 1.25f; Waiting(r, "NativePlaybackRejected"); }
         }
         public void Unavailable(Reaction r) { _queue.Remove(r); Dropped(r, r.InvalidReason ?? "NoMatchingBank"); }
-        public void NativeSpoken(EPhraseTrigger phrase, TaggedClip clip) => _squad.LocalSpoken(phrase, clip);
+        public void NativeSpoken(EPhraseTrigger phrase, TaggedClip clip, VoiceCue cue)
+        {
+            if (_squad.Enabled && _settings.TeamReplies.Value) _squad.ObserveWeapon(ReadyState, Time.time);
+            _squad.LocalSpoken(phrase, clip, cue);
+        }
         public void Spoke(VoiceCue cue, bool automatic)
         {
             if (cue == null) return;
@@ -854,7 +877,7 @@ namespace ImmersiveVoice
         {
             if (!_settings.Debug.Value && !_journal.Enabled) return;
             BarkContext c = Context;
-            string fields = FormattableString.Invariant($"Event={r.Kind} Request={r.Cue.RequestId} Priority={r.Priority} Group={r.Cue.Group} Remaining={r.ExpiresAt - Time.time:F2} Voice={_player?.Speaker?.PlayerVoice} Mode={c.Mode} Combat={c.Combat} FightSeconds={c.FightDuration:F1} PeakPressure={c.PeakPressure:F1} TookHostileHit={c.TookHostileHit} HadMalfunction={c.HadMalfunction} ObservedDowns={c.RecentObservedDowns} EndingSelected={c.EndingSelected} Exchange={r.ExchangeVersion}/{_combat.ExchangeVersion} FaultEpisode={r.MalfunctionEpisode} Health={c.Injury} HealthEpisode={_healthSpeech.Version} Bleeding={c.Bleeding} HeavyBleeding={c.HeavyBleeding} ArmFracture={c.ArmFracture} LegFracture={c.LegFracture} RecentHit={c.RecentlyHit} DamageVersion={r.DamageVersion}/{c.DamageVersion} Healing={c.Healing} Teammate={c.NearbyTeammate} RecentTeammate={c.RecentTeammate} AcuteHealth={r.Cue.AcuteHealth} Intent={r.Cue.Intent} Phrase={(EPhraseTrigger)r.Cue.Phrase} SquadAction={r.Squad.Action} Peer={(r.Squad.Exists ? r.Squad.Slot : r.Loss.Exists ? r.Loss.Slot : -1)} PeerVersion={(r.Squad.Exists ? r.Squad.PeerVersion : r.Loss.Version)} Episode={r.Squad.Episode} Reply={r.Squad.Reply} DialogueSequence={r.Squad.Dialogue.Sequence} NpcEpisode={r.NpcEpisode} Decision={decision} Reason={reason}");
+            string fields = FormattableString.Invariant($"Event={r.Kind} Request={r.Cue.RequestId} Priority={r.Priority} Group={r.Cue.Group} Remaining={r.ExpiresAt - Time.time:F2} Voice={_player?.Speaker?.PlayerVoice} Mode={c.Mode} Combat={c.Combat} FightSeconds={c.FightDuration:F1} PeakPressure={c.PeakPressure:F1} TookHostileHit={c.TookHostileHit} HadMalfunction={c.HadMalfunction} ObservedDowns={c.RecentObservedDowns} EndingSelected={c.EndingSelected} Exchange={r.ExchangeVersion}/{_combat.ExchangeVersion} FaultEpisode={r.MalfunctionEpisode} Health={c.Injury} HealthEpisode={_healthSpeech.Version} Bleeding={c.Bleeding} HeavyBleeding={c.HeavyBleeding} ArmFracture={c.ArmFracture} LegFracture={c.LegFracture} RecentHit={c.RecentlyHit} DamageVersion={r.DamageVersion}/{c.DamageVersion} Healing={c.Healing} Teammate={c.NearbyTeammate} RecentTeammate={c.RecentTeammate} AcuteHealth={r.Cue.AcuteHealth} Intent={r.Cue.Intent} Phrase={(EPhraseTrigger)r.Cue.Phrase} SquadAction={r.Squad.Action} Peer={(r.Squad.Exists ? r.Squad.Slot : r.Loss.Exists ? r.Loss.Slot : -1)} PeerVersion={(r.Squad.Exists ? r.Squad.PeerVersion : r.Loss.Version)} Episode={r.Squad.Episode} Reply={r.Squad.Reply} DialogueCaller={r.Cue.Dialogue.Caller} DialogueEpoch={r.Cue.Dialogue.Epoch} DialogueSequence={r.Cue.Dialogue.Sequence} ReadyVersion={r.ReadyVersion} NpcEpisode={r.NpcEpisode} Decision={decision} Reason={reason}");
             Record(fields);
         }
 

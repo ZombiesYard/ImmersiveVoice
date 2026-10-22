@@ -53,3 +53,13 @@ python tools/summarize_voice_log.py PATH_TO_VOICE_LOG --timeline
 `Peer`是本端固定队友槽，`DialogueSequence`是该来话者的临时计数，不是全局玩家身份。每端时钟独立，序号不能直接跨不同来话者合并。`SquadDialogueSummary`记录当前网络管理器累计发送/接收消息调用数和主机授予次数，以及收尾时的`Ready`；发送调用不等于已交付，客户端`Grants=0`也不代表未收到授权。headless只在BepInEx主日志记录注册、故障和收尾计数。
 
 摘要新增`squad_dialogue_decisions`和`squad_dialogue_network`。`SquadEvidence`增加`CoverReason`、`MoveReason`和带路重复限制剩余时间，可区分缺少相关火力、动作太短与重复抑制。取得授权后动作失效、音效缺失或超时，不会把同一回应转交另一人。NPC互动仍沿用自己的日志和回应去重规则。
+
+## 2.15.0 Ready收尾诊断
+
+`SquadReadyEvidence`记录`AwaitingHeardCover`、`HeardCoverConfirmed`、`WeaponRecovered`和`ClosingSelected`，以及取消原因。`HeardCoverConfirmed`须有对应的原生Covering音频及主机验证的播放回执；`HostSelected`不够。阶段记录不等于Ready已播放，仍须核对`Event=SquadReady`请求、`Source=Auto Phrase=Ready Decision=Played`和`PlaybackResult`。
+
+`NoUsableActionResult`表示动作结束但仍为空枪或装填没有弹药/弹匣变化；`WeaponNoLongerReady`、`WeaponChanged`、`NewDamage`、`SurvivalOrTreatment`、`CoverPeerUnavailable`、`ReadyExpired`、`SquadPaused`分别解释新操作、切枪、受伤、生存/治疗、队友不可感知、超时和暂停。缺音效仍为`NoMatchingBank`，不会寻找替代短语。故障标志已清除但排障操作仍在进行时，继续等待实际操作结束。
+
+收尾证据的`Caller/Epoch/Sequence`与请求中的`DialogueCaller/DialogueEpoch/DialogueSequence`共同标识临时对话；不能只比较Sequence。`CoverActor`是临时网络编号，`ReadyVersion`是本地动作版本。摘要新增`squad_ready_evidence`，请求时间线保留完整临时编号；不记录持久玩家身份、坐标或音频。
+
+新增收尾状态检查不全在`SquadObserver.Tick`内，原有协同计时不可当作整个新功能或整局CPU消耗；性能基准只测纯规则模型。实战应检查四人同时请求、快速取消装填、排障、缺Ready、切枪、菜单、伤害和断线重连。

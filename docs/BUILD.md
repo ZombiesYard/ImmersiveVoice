@@ -40,8 +40,8 @@ python tools/package_release.py --dll src/bin/Release/netstandard2.1/ImmersiveVo
 
 The packager uses an explicit file allowlist and verifies archive contents and hashes. The installation ZIP contains the plugin, Chinese installation instructions, GPL license, notices and SHA-256 checksums. A separate corresponding-source ZIP contains the files tracked at the release commit, without Git history, logs or local build artifacts. Package only after the working tree is clean; source archives must correspond to the released binary.
 
-## Squad dialogue protocol (2.14.0)
+## Squad dialogue protocol (2.15.0)
 
-The Fika adapter resolves the optional API once and registers a fixed nine-integer packet. Fika's installed serializer produces 38 bytes including its packet hash, before transport envelopes. No audio, coordinates or persistent account IDs are sent. All Fika peers, including a headless host, must register the same protocol version. Clients send nothing before the host capability message. Audio continues through native Player.Say / PhrasePacket.
+The Fika adapter resolves the optional API once and registers a fixed nine-integer packet. Fika's installed serializer produces 38 bytes including its packet hash, before transport envelopes. A Covering playback receipt reuses this layout and is accepted only for the granted responder of a cover call. The caller must also hear the matching native clip before considering Ready. No audio, coordinates or persistent account IDs are sent. All Fika peers, including a headless host, must register the same protocol version. Clients send nothing before the host capability message. Audio continues through native Player.Say / PhrasePacket.
 
 The tests include 48 four-human arrival/audio permutations, expiry/reconnect cases, real installed serializer round-trips, and a simulated four-client transport using the production adapter. This is not a live UDP or Unity audio test. Pure-model allocation/timing checks do not measure overall raid CPU usage.

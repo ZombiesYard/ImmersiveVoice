@@ -354,6 +354,7 @@ SquadContinuityScenarios.Run(Check);
 JournalScenarios.Run(Check);
 NpcReplyScenarios.Run(Check);
 SquadDialogueScenarios.Run(Check);
+SquadReadyScenarios.Run(Check);
 DialoguePacketScenarios.Run(Check);
 
 // Exhaust every ownership/lifecycle combination; only a live, running, local
@@ -616,7 +617,7 @@ Check(Type(fika, "Fika.Core.Modding.Events.PeerConnectedEvent").Properties.Any(p
 Check(Type(fika, "Fika.Core.Main.Components.CoopHandler").Properties.Any(p => p.Name == "Players")
     && Type(fika, "Fika.Core.Main.Players.FikaPlayer").Fields.Any(f => f.Name == "NetId" && f.FieldType.MetadataType == MetadataType.Int32),
     "server human lookup and cached network identity match installed Fika");
-foreach (var entry in new[] { ("Going", 59), ("Covering", 60), ("OnPosition", 64), ("GoodWork", 66) })
+foreach (var entry in new[] { ("Going", 59), ("Covering", 60), ("OnPosition", 64), ("GoodWork", 66), ("Ready", 63) })
     Check((int)Type(game, "EPhraseTrigger").Fields.Single(f => f.Name == entry.Item1).Constant == entry.Item2,
         "dialogue semantic ID matches installed enum: " + entry.Item1);
 int callsites = 0;

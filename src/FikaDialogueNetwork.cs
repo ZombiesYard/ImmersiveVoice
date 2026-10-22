@@ -13,7 +13,7 @@ namespace ImmersiveVoice
     // arbitrates only metadata; native Player.Say still carries every voice.
     internal sealed class FikaDialogueNetwork : IDisposable
     {
-        private const int Hello = 0, Open = 1, Claim = 2, Grant = 3;
+        private const int Hello = 0, Open = 1, Claim = 2, Grant = 3, Spoken = 4;
         private readonly FikaBridge _fika;
         private readonly ManualLogSource _log;
         private readonly DialogueArbiter _calls = new DialogueArbiter();
@@ -134,21 +134,35 @@ namespace ImmersiveVoice
                     { Send(data); return; }
                     if (data.Kind == Claim && _calls.Claim(ticket, data.Actor, now))
                     { Grants++; Send(New(Grant, ticket, data.Actor)); }
+                    if (data.Kind == Spoken && _calls.Reply(ticket, data.Actor, data.Phrase, data.Clip, data.DurationMs / 1000f, now))
+                        Send(data);
                 }
                 else if (data.Kind == Open && Human(Player(data.Caller)))
                     _calls.Open(ticket, data.Phrase, data.Clip, data.DurationMs / 1000f, now, identity: Player(data.Caller));
                 else if (data.Kind == Grant) _calls.Claim(ticket, data.Actor, now);
+                else if (data.Kind == Spoken && Human(Player(data.Actor)))
+                    _calls.Reply(ticket, data.Actor, data.Phrase, data.Clip, data.DurationMs / 1000f, now);
             }
             catch (Exception ex) { Fail(ex); }
         }
 
-        public void Publish(int caller, int phrase, int clip, float duration)
+        public DialogueTicket Publish(int caller, int phrase, int clip, float duration)
         {
-            if (!Ready || _failed || SquadDialogue.Command(phrase) == SquadCommand.None || duration < 0 || duration > 20) return;
+            if (!Ready || _failed || SquadDialogue.Command(phrase) == SquadCommand.None || float.IsNaN(duration) || duration <= 0 || duration > 20) return default;
             var ticket = new DialogueTicket { Caller = caller, Epoch = _epoch, Sequence = ++_sequence };
             var data = New(Open, ticket, caller); data.Phrase = phrase; data.Clip = clip; data.DurationMs = (int)(duration * 1000f);
             if (_server) Receive(data, null); else Send(data);
+            return Ready ? ticket : default;
         }
+        public void ReplySpoken(DialogueTicket ticket, int actor, int phrase, int clip, float duration)
+        {
+            if (!Ready || _failed || !ticket.Exists || phrase != 60 || Winner(ticket, Time.time) != actor
+                || float.IsNaN(duration) || duration <= 0 || duration > 20) return;
+            var data = New(Spoken, ticket, actor); data.Phrase = phrase; data.Clip = clip; data.DurationMs = (int)(duration * 1000f);
+            if (_server) Receive(data, null); else Send(data);
+        }
+        public DialogueTicket MatchReply(int caller, int actor, int clip, float heardAt, float now)
+            => Ready ? _calls.MatchReply(caller, actor, clip, heardAt, now) : default;
         public DialogueTicket Match(int caller, int phrase, int clip, float heardAt, float now)
             => Ready ? _calls.Match(caller, phrase, clip, heardAt, now) : default;
         public int Winner(DialogueTicket ticket, float now) => Ready ? _calls.Winner(ticket, now) : -1;

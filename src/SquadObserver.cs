@@ -36,9 +36,12 @@ namespace ImmersiveVoice
         private readonly VoiceJournal _journal;
         private readonly Peer[] _peers = { new Peer(), new Peer(), new Peer() };
         private readonly SquadMemory _memory = new SquadMemory();
+        private readonly SquadReadyMemory _ready = new SquadReadyMemory();
+        private Player _coverPeer;
+        private string _readyReason;
         private readonly SquadLossMemory _loss = new SquadLossMemory();
         private readonly ViewProbe _probe = new ViewProbe();
-        private SquadGate _sample, _decision, _sight, _roster;
+        private SquadGate _sample, _decision, _sight, _roster, _readyDecision;
         private int _scanIndex, _sightIndex;
         private bool _active, _disposed, _faulted;
         private float _othersUntil;
@@ -348,7 +351,7 @@ namespace ImmersiveVoice
                     // automatic replies are coordinated by their exact ticket.
                     if (phrase == EPhraseTrigger.Roger) _memory.OtherAcknowledged(now);
                     SquadCommand command = SquadDialogue.Command((int)phrase);
-                    if (command != SquadCommand.None && _settings.TeamReplies.Value)
+                    if ((command != SquadCommand.None || phrase == EPhraseTrigger.Covering) && _settings.TeamReplies.Value)
                     {
                         p.HeardPhrase = (int)phrase; p.HeardClip = clip.NetId;
                         p.HeardAt = now; p.HeardDuration = clip.Length; p.WaitingMetadata = true;
@@ -369,16 +372,78 @@ namespace ImmersiveVoice
                 if (Tracing) Trace("Event=SquadDialogue Decision=Suppressed Reason=MetadataUnavailable");
                 return;
             }
+            if (p.HeardPhrase == (int)EPhraseTrigger.Covering)
+            {
+                DialogueTicket cover = Plugin.Dialogue?.MatchReply(_fika.NetworkId(_local), _fika.NetworkId(p.Player), p.HeardClip, p.HeardAt, now) ?? default;
+                if (!cover.Exists) return;
+                p.WaitingMetadata = false;
+                if (_ready.Covered(cover, _fika.NetworkId(p.Player), p.HeardAt, p.HeardDuration, now))
+                { _coverPeer = p.Player; TraceReady(); }
+                return;
+            }
             DialogueTicket ticket = Plugin.Dialogue?.Match(_fika.NetworkId(p.Player), p.HeardPhrase, p.HeardClip, p.HeardAt, now) ?? default;
             if (!ticket.Exists) return;
             _memory.Hear(slot, SquadDialogue.Command(p.HeardPhrase), p.HeardAt, p.HeardDuration, ticket);
             p.WaitingMetadata = false;
             if (Tracing) Trace($"Event=SquadDialogue Decision=Observed Reason=HeardCall Peer={slot} Sequence={ticket.Sequence}");
         }
-        public void LocalSpoken(EPhraseTrigger phrase, TaggedClip clip)
+        public void LocalSpoken(EPhraseTrigger phrase, TaggedClip clip, VoiceCue cue)
         {
             if (!Enabled || clip?.Clip == null) return;
-            Plugin.Dialogue?.Publish(_fika.NetworkId(_local), (int)phrase, clip.NetId, clip.Length);
+            FikaDialogueNetwork net = Plugin.Dialogue;
+            if (cue != null && cue.Dialogue.Exists && phrase == EPhraseTrigger.Covering)
+                net?.ReplySpoken(cue.Dialogue, _fika.NetworkId(_local), (int)phrase, clip.NetId, clip.Length);
+            DialogueTicket ticket = net?.Publish(_fika.NetworkId(_local), (int)phrase, clip.NetId, clip.Length) ?? default;
+            if (_settings.TeamReplies.Value && _ready.Arm(ticket, (int)phrase, Time.time))
+            { _coverPeer = null; TraceReady(); }
+            if (ticket.Exists && _ready.Active && !_ready.Ticket.Same(ticket)) CancelReady("NewLocalCall");
+            if (phrase == EPhraseTrigger.Ready) CancelReady("ClosingSpoken");
+        }
+        public bool ReadyActive => _ready.Active;
+        public void ObserveWeapon(ReadyWeaponState state, float now)
+        {
+            if (!Enabled || !_settings.TeamReplies.Value || Plugin.Dialogue?.Ready != true)
+            { if (_ready.Active) CancelReady("DialogueUnavailable"); return; }
+            DialogueTicket ticket = _ready.Ticket;
+            int actor = _ready.CoverActor;
+            _ready.Observe(state, now);
+            if (Tracing && ticket.Exists && !_ready.Active)
+                Trace($"Event=SquadReadyEvidence Decision=Cancelled Reason={_ready.Reason} Caller={ticket.Caller} Epoch={ticket.Epoch} Sequence={ticket.Sequence} CoverActor={actor}");
+            if (ticket.Exists && !_ready.Active) _readyReason = _ready.Reason;
+            TraceReady();
+        }
+        public int TakeReady(float now)
+        {
+            if (!Enabled || !_settings.TeamReplies.Value || Plugin.Dialogue?.Ready != true)
+            { CancelReady("DialogueUnavailable"); return 0; }
+            if (!_ready.Active || !_active || !_readyDecision.Take(now, SquadMemory.DecisionPeriod)) return 0;
+            if (_ready.CoverActor != 0 && !CoverNearby(now)) { CancelReady("CoverPeerUnavailable"); return 0; }
+            int version = _ready.Take(now); TraceReady(); return version;
+        }
+        private bool CoverNearby(float now)
+        {
+            for (int i = 0; i < SquadMemory.Capacity; i++)
+                if (_peers[i].Player == _coverPeer && _coverPeer != null && Perceived(_peers[i], now)) return true;
+            return false;
+        }
+        public string ReadyRejection(int version, float now)
+            => !_active || !Enabled || !_settings.TeamReplies.Value || Plugin.Dialogue?.Ready != true ? "DialogueUnavailable"
+                : !_ready.Valid(version, now) ? _ready.Reason ?? "ReadyInvalidated"
+                : !CoverNearby(now) ? "CoverPeerUnavailable" : null;
+        public float ReadyExpiry => _ready.ExpiresAt;
+        public DialogueTicket ReadyTicket => _ready.Ticket;
+        public void CancelReady(string reason)
+        {
+            if (!_ready.Active) return;
+            // Log the original ticket before clearing it, for cross-client matching.
+            if (Tracing) Trace($"Event=SquadReadyEvidence Decision=Cancelled Reason={reason} Caller={_ready.Ticket.Caller} Epoch={_ready.Ticket.Epoch} Sequence={_ready.Ticket.Sequence} CoverActor={_ready.CoverActor}");
+            _ready.Clear(reason); _coverPeer = null; _readyReason = reason;
+        }
+        private void TraceReady()
+        {
+            if (_ready.Reason == _readyReason) return;
+            _readyReason = _ready.Reason;
+            if (Tracing && _readyReason != null) Trace($"Event=SquadReadyEvidence Reason={_readyReason} Version={_ready.Version} Caller={_ready.Ticket.Caller} Epoch={_ready.Ticket.Epoch} Sequence={_ready.Ticket.Sequence} CoverActor={_ready.CoverActor}");
         }
         public string DialogueGate(SquadDecision decision, float now)
         {
@@ -407,6 +472,7 @@ namespace ImmersiveVoice
         }
         public void Pause(float now, bool manual = false)
         {
+            CancelReady(manual ? "ManualPriority" : "SquadPaused");
             if (_active || manual)
             {
                 _memory.Suspend(now, manual);

@@ -17,7 +17,7 @@ namespace ImmersiveVoice
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "local.immersivevoice";
-        public const string Version = "2.14.0";
+        public const string Version = "2.15.0";
         private static Plugin _instance;
         private Harmony _harmony;
         private Settings _settings;
