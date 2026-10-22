@@ -64,6 +64,126 @@ internal static class CombatReportScenarios
             "a missing exact ScavDown bank stays silent instead of falling back to EnemyDown");
 
         memory.Clear();
+        memory.ObserveLiving("rescue", 100, true, true, false, reportable: false);
+        check(!memory.ObserveHostileDamage("rescue", 100.1f, true, true, true, 8, false, false, 20).Exists,
+            "ordinary visible hostile damage records the rescue premise without inventing a sniper");
+        memory.ObserveTeammateHit("rescue", 2, 101, true, true, true, true, true, 6);
+        CombatReport goodWork = memory.ObserveDeath("rescue", 102, true, true, true, false);
+        check(goodWork.Kind == CombatReportKind.GoodWork && goodWork.Actor == 2 && memory.Valid(goodWork, 102),
+            "GoodWork binds harm, the perceived human teammate's real counter-hit and visible death on one target");
+        memory.RemovePeer(2);
+        check(!memory.Valid(goodWork, 102),
+            "teammate departure invalidates a queued GoodWork line before playback");
+        check(CombatReportRules.ExactPhrase(CombatReportKind.GoodWork, true) == 66
+            && CombatReportRules.ExactPhrase(CombatReportKind.GoodWork, false) == 0,
+            "missing GoodWork audio consumes the exact outcome without falling back to a generic down line");
+
+        memory.Clear();
+        memory.ObserveLiving("arbitrary", 110, true, true, false, reportable: false);
+        memory.ObserveTeammateHit("arbitrary", 2, 111, true, true, true, true, true, 20);
+        check(memory.ObserveDeath("arbitrary", 112, true, true, true, false).Kind == CombatReportKind.EnemyDown,
+            "an arbitrary teammate kill is not praised when that enemy never hurt the local player");
+        memory.Clear();
+        memory.ObserveLiving("hurt-us", 120, true, true, false, reportable: false);
+        memory.ObserveLiving("other-target", 120, true, true, false, reportable: false);
+        memory.ObserveHostileDamage("hurt-us", 120.1f, true, true, true, 6, false, false, 10);
+        memory.ObserveTeammateHit("other-target", 2, 121, true, true, true, true, true, 20);
+        check(memory.ObserveDeath("hurt-us", 122, true, true, true, false).Kind == CombatReportKind.EnemyDown,
+            "damage to another enemy cannot be credited as covering the threat that hurt us");
+        memory.Clear();
+        memory.ObserveLiving("unseen-peer", 130, true, true, false, reportable: false);
+        memory.ObserveHostileDamage("unseen-peer", 130.1f, true, true, true, 6, false, false, 10);
+        memory.ObserveTeammateHit("unseen-peer", 2, 131, true, true, true, true, false, 20);
+        check(memory.ObserveDeath("unseen-peer", 132, true, true, true, false).Kind == CombatReportKind.EnemyDown,
+            "an unperceived teammate's replicated damage does not create a GoodWork relationship");
+        memory.Clear();
+        memory.ObserveLiving("departed-peer", 140, true, true, false, reportable: false);
+        memory.ObserveHostileDamage("departed-peer", 140.1f, true, true, true, 6, false, false, 10);
+        memory.ObserveTeammateHit("departed-peer", 3, 141, true, true, true, true, true, 20);
+        memory.RemovePeer(3);
+        check(memory.ObserveDeath("departed-peer", 142, true, true, true, false).Kind == CombatReportKind.EnemyDown,
+            "a departed or replaced teammate cannot retain rescue credit");
+        memory.Clear();
+        memory.ObserveLiving("late-rescue", 150, true, true, false, reportable: false);
+        memory.ObserveHostileDamage("late-rescue", 150.1f, true, true, true, 6, false, false, 10);
+        memory.ObserveTeammateHit("late-rescue", 2, 151, true, true, true, true, true, 20);
+        check(memory.ObserveDeath("late-rescue", 154.01f, true, true, true, false).Kind == CombatReportKind.EnemyDown,
+            "a much later death cannot inherit old teammate rescue damage");
+        memory.Clear();
+        string[] fourThreats = { "peer-cap-a", "peer-cap-b", "peer-cap-c", "peer-cap-d" };
+        for (int i = 0; i < fourThreats.Length; i++)
+        {
+            float at = 160 + i * .1f;
+            memory.ObserveLiving(fourThreats[i], at, true, true, false, reportable: false);
+            memory.ObserveHostileDamage(fourThreats[i], at + .01f, true, true, true, 5, false, false, 10);
+            memory.ObserveTeammateHit(fourThreats[i], 10 + i, at + .02f, true, true, true, true, true, 5);
+        }
+        check(memory.ObserveDeath("peer-cap-a", 160.5f, true, true, true, false).Kind == CombatReportKind.EnemyDown,
+            "four threats still retain at most three distinct teammate rescue identities");
+
+        memory.Clear();
+        check(!memory.ObserveFriendlyDamage(2, 200, true, false, 30).Exists
+            && !memory.ObserveFriendlyDamage(2, 200, false, true, 30).Exists
+            && !memory.ObserveFriendlyDamage(2, 200, true, true, 0).Exists,
+            "HoldFire requires a confirmed same-team human who caused real positive damage");
+        check(!memory.ObserveFriendlyDamage(2, 201, true, true, 4).Exists,
+            "one small friendly graze remains silent");
+        CombatReport hold = memory.ObserveFriendlyDamage(2, 201.5f, true, true, 4);
+        check(hold.Kind == CombatReportKind.HoldFire && hold.Actor == 2 && memory.Valid(hold, 201.5f),
+            "two real friendly hits in one short window support one HoldFire command");
+        check(!memory.ObserveFriendlyDamage(2, 202, true, true, 30).Exists,
+            "the same teammate cannot repeat HoldFire during its bounded cooldown");
+        CombatReport reusedIdentity = memory.ObserveFriendlyDamage(2, 202.1f, true, true, 18, 0, 2);
+        check(reusedIdentity.Exists && !memory.Valid(hold, 202.1f),
+            "a new occupant generation for a reused actor id resets cooldown and invalidates old fire-discipline evidence");
+        CombatReport severeFriendly = memory.ObserveFriendlyDamage(3, 203, true, true, 18);
+        check(severeFriendly.Kind == CombatReportKind.HoldFire,
+            "one materially damaging friendly hit can demand immediate fire discipline");
+        check(CombatReportRules.ExactPhrase(CombatReportKind.HoldFire, true) == 42
+            && CombatReportRules.ExactPhrase(CombatReportKind.HoldFire, false) == 0,
+            "missing HoldFire audio stays silent without substituting FriendlyFire or another command");
+        CombatReport oldestPeer = hold;
+        memory.ObserveFriendlyDamage(4, 204, true, true, 18);
+        memory.ObserveFriendlyDamage(5, 205, true, true, 18);
+        check(!memory.Valid(oldestPeer, 205),
+            "the fixed three-teammate cache evicts old fire-discipline state instead of growing");
+
+        memory.Clear();
+        check(!memory.ObserveHostileDamage("hidden-sniper", 300, true, false, true, 10, true, false, 20).Exists,
+            "a weapon classification cannot reveal an attacker that was never perceived");
+        memory.ObserveLiving("sniper", 301, true, true, false, reportable: false);
+        CombatReport sniper = memory.ObserveHostileDamage("sniper", 301.2f, true, true, true, 10, true, false, 20);
+        check(sniper.Kind == CombatReportKind.SniperThreat && memory.Valid(sniper, 302),
+            "a real visible attacker with a reliable sniper weapon classification supports SniperPhrase");
+        check(!memory.ObserveHostileDamage("sniper", 301.5f, true, true, true, 10, true, false, 20).Exists,
+            "repeated damage cannot multiply sniper warnings");
+        check(CombatReportRules.ExactPhrase(CombatReportKind.SniperThreat, true) == 71
+            && CombatReportRules.ExactPhrase(CombatReportKind.SniperThreat, false) == 0,
+            "missing SniperPhrase audio is consumed without degrading to a generic contact line");
+        memory.Clear();
+        memory.ObserveLiving("rifleman", 310, true, true, false, reportable: false);
+        check(!memory.ObserveHostileDamage("rifleman", 310.1f, true, true, true, 10, false, true, 79.9f).Exists
+            && !memory.ObserveHostileDamage("rifleman", 310.2f, true, true, true, 10, false, false, 200).Exists,
+            "an ordinary weapon below the explicit long-range threshold is not called a sniper");
+        CombatReport longRange = memory.ObserveHostileDamage("rifleman", 311, true, true, true, 10, false, true, 80);
+        check(longRange.Kind == CombatReportKind.SniperThreat,
+            "an actual attacker with explicit eighty-metre ranged-shot evidence supports the warning");
+        memory.Clear();
+        memory.ObserveLiving("recent-sniper", 320, true, true, false, reportable: false);
+        check(memory.ObserveHostileDamage("recent-sniper", 321.9f, true, false, true, 10, true, false, 20).Kind
+                == CombatReportKind.SniperThreat,
+            "a clearly perceived attacker remains attributable across the short damage callback delay");
+        memory.Clear();
+        memory.ObserveLiving("stale-sniper", 330, true, true, false, reportable: false);
+        check(!memory.ObserveHostileDamage("stale-sniper", 332.01f, true, false, true, 10, true, false, 20).Exists,
+            "old target memory cannot label a background attacker as a sniper");
+        memory.Clear();
+        memory.ObserveLiving("unconfirmed-sniper", 340, true, true, false, reportable: false);
+        check(!memory.ObserveHostileDamage("unconfirmed-sniper", 340.1f, true, true, false, 10, true, false, 20).Exists
+            && !memory.ObserveHostileDamage("unconfirmed-sniper", 340.2f, true, true, true, float.NaN, true, false, 20).Exists,
+            "unconfirmed attackers and invalid damage cannot create sniper warnings");
+
+        memory.Clear();
         for (int i = 0; i < CombatReportMemory.Capacity; i++)
             memory.ObserveLiving("slot-" + i, 100 + i, true, true, false);
         memory.ObserveLiving("fifth", 105, true, true, false);
@@ -79,13 +199,20 @@ internal static class CombatReportScenarios
 
         memory.Clear();
         memory.ObserveLiving("steady", 200, true, true, false);
+        var benchmark = System.Diagnostics.Stopwatch.StartNew();
         long allocated = GC.GetAllocatedBytesForCurrentThread();
         for (int i = 0; i < 100000; i++)
         {
             memory.ObserveLiving("steady", 200 + i * 0.01f, true, true, false);
             memory.ObserveHit("steady", 200 + i * 0.01f, true, true, true, true, false, false);
+            memory.ObserveHostileDamage("steady", 200 + i * 0.01f, true, true, true, 1, false, false, 10);
+            memory.ObserveTeammateHit("steady", 2, 200 + i * 0.01f, true, true, true, true, true, 1);
+            memory.ObserveFriendlyDamage(2, 200 + i * 0.01f, true, true, 1);
         }
-        check(GC.GetAllocatedBytesForCurrentThread() == allocated,
+        long allocation = GC.GetAllocatedBytesForCurrentThread() - allocated;
+        benchmark.Stop();
+        check(allocation == 0,
             "one hundred thousand combat-report updates allocate no managed memory");
+        Console.WriteLine($"Combat report benchmark: 100,000 mixed threat/teammate updates in {benchmark.Elapsed.TotalMilliseconds:F2} ms, {allocation} managed bytes.");
     }
 }

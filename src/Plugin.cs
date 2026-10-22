@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using BepInEx;
 using BepInEx.Logging;
 using EFT;
@@ -17,7 +18,7 @@ namespace ImmersiveVoice
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "local.immersivevoice";
-        public const string Version = "2.16.0";
+        public const string Version = "2.17.0";
         private static Plugin _instance;
         private Harmony _harmony;
         private Settings _settings;
@@ -51,12 +52,13 @@ namespace ImmersiveVoice
                 Patch(typeof(GesturesQuickPanel), "Show", nameof(OnPanelShown), false);
                 Patch(typeof(GamePlayerOwner), "QuickMumbleHandler", nameof(OnManualInput), true);
                 Patch(typeof(GamePlayerOwner), "MakeBindActionHandler", nameof(OnManualInput), true);
+                Patch(typeof(Player), "InventoryControllerOnSearchEvent", nameof(OnSearchChanged), false);
                 if (_fika.Extract != null)
                 {
                     Patch(typeof(Player), "ShotReactions", nameof(OnObservedHit), false);
                     _harmony.Patch(_fika.Extract, postfix: new HarmonyMethod(typeof(Plugin), nameof(OnExtracted)));
                 }
-                Logger.LogInfo("Immersive Voice " + Version + " ready. Evidence-bound combat reports and four-player tactics. Missing clips stay silent. Local player only. Pause toggles silence; F12 config.");
+                Logger.LogInfo("Immersive Voice " + Version + " ready. Evidence-bound action, combat and four-player tactics. Missing clips stay silent. Local player only. Pause toggles silence; F12 config.");
             }
             catch (Exception ex)
             {
@@ -111,6 +113,18 @@ namespace ImmersiveVoice
             Plugin plugin = _instance;
             if (plugin?._session == null) return;
             try { plugin._session.ObservedHit(__instance, __0); }
+            catch (Exception ex) { plugin.FailSession(ex); }
+        }
+
+        private static void OnSearchChanged(Player __instance)
+        {
+            Plugin plugin = _instance;
+            if (plugin?._session == null || __instance == null || plugin._session.Player != __instance) return;
+            try
+            {
+                object operation = __instance.SearchController?.SearchOperations?.LastOrDefault();
+                plugin._session.SearchChanged(__instance, operation);
+            }
             catch (Exception ex) { plugin.FailSession(ex); }
         }
 

@@ -26,7 +26,7 @@ REQUEST_FIELDS = ("Time", "Seq", "Event", "Decision", "Reason", "Intent", "Phras
                   "ChancePercent", "RollPercent", "Passed", "HealthEpisode", "HealthState", "Confirmed", "NativeReached",
                   "Tags", "FemaleGateYielded", "BreathYielded", "CurrentPhrase", "QueuedPhrase",
                   "AcuteHealth", "HealthEscalation", "Teammate", "RecentTeammate", "RecentHit", "DamageVersion", "NpcEpisode",
-                  "CombatReport", "Direction", "TeamReportVersion", "NativeException")
+                  "CombatReport", "Direction", "Stage", "ActionVersion", "TeamReportVersion", "NativeException")
 SETTING_FIELDS = ("Version", "Mode", "Enabled", "Director", "Coordination", "Replies", "FriendlyDown", "Recording",
                   "Debug", "Gap", "ManualPause", "RespectStealth", "Combat", "Idle", "Visual", "Healing", "Damage", "MedicalRequests",
                   "CalmReloadChance", "RecoveryReloadChance", "VisualRange", "CombatMin", "CombatMax", "CombatChance",

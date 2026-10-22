@@ -357,6 +357,7 @@ NpcReplyScenarios.Run(Check);
 SquadDialogueScenarios.Run(Check);
 SquadReadyScenarios.Run(Check);
 CombatReportScenarios.Run(Check);
+ActionSpeechScenarios.Run(Check);
 EnemyDirectionScenarios.Run(Check);
 DialoguePacketScenarios.Run(Check);
 
@@ -403,6 +404,10 @@ Check(Calls(Method(plugin, "ImmersiveVoice.Plugin", "LateUpdate"), "Settings::Ap
 Check(Method(game, "EFT.UI.Gestures.GesturesQuickPanel", "Show").Parameters[0].ParameterType.FullName == "EFT.GamePlayerOwner", "native Show patch matches installed game signature");
 Check(Method(game, "EFT.GamePlayerOwner", "QuickMumbleHandler").Parameters.Count == 0, "manual Y patch target exists");
 Check(Method(game, "EFT.GamePlayerOwner", "MakeBindActionHandler").Parameters.Count == 2, "manual F1 bind patch target exists");
+Check(Method(game, "EFT.Player", "InventoryControllerOnSearchEvent").Parameters.Count == 0
+    && Calls(Method(plugin, "ImmersiveVoice.Plugin", "OnSearchChanged"), "get_SearchOperations")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceSession", "SearchChanged"), "VoiceDirector::SearchStarted"),
+    "search speech is driven only by the native local SearchContentOperation edge");
 var say = Method(game, "EFT.Player", "Say");
 Check(say.Parameters.Count == 6 && Calls(say, "EFT.BaseSpeaker::Play"), "Player.Say still reaches the native speaker");
 Check(Calls(Method(game, "EFT.GamePlayerOwner", "QuickMumbleStart"), "GesturesQuickPanel::ActivateCommand")
@@ -519,6 +524,8 @@ if (File.Exists(femalePath))
         "installed optional female voice plugin has the precise gate used by its native-play prefix");
 }
 Check(new[] { ("GoForward", 33), ("Gogogo", 34), ("GetBack", 32), ("Regroup", 47), ("HoldPosition", 36), ("OnFriendlyDown", 14),
+        ("OnEnemyConversation", 17), ("Silence", 39), ("HoldFire", 42), ("Ready", 63), ("OnLoot", 65),
+        ("GoodWork", 66), ("SniperPhrase", 71), ("NeedHelp", 88),
         ("Suppress", 43), ("Spreadout", 44), ("GetInCover", 45), ("LeftFlank", 69), ("Scav", 70),
         ("RightFlank", 72), ("InTheFront", 73), ("OnSix", 74), ("EnemyDown", 75), ("ScavDown", 76),
         ("EnemyHit", 78), ("KnifeKill", 79) }
@@ -533,6 +540,23 @@ Check(Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "Observe"), "EnemyDir
     && Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "ObservedHit"), "CombatReportMemory::ObserveHit")
     && Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "ObservedHit"), "SquadObserver::PeerShot"),
     "new combat reports reuse the existing visual and hit callbacks without a new polling path");
+var hitAdapter = Walk(new[] { Type(plugin, "ImmersiveVoice.VoiceDirector") }).SelectMany(t => t.Methods)
+    .Single(m => m.HasBody && Calls(m, "CombatReportMemory::ObserveHostileDamage"));
+Check(Calls(hitAdapter, "CombatReportMemory::ObserveFriendlyDamage")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "ObservedHit"), "CombatReportMemory::ObserveTeammateHit"),
+    "sniper, hold-fire and rescue reports bind to actual damage callbacks and exact actors");
+Check(Calls(Method(plugin, "ImmersiveVoice.SquadObserver", "Tick"), "StealthApproachMemory::Sample")
+    && Method(plugin, "ImmersiveVoice.SquadObserver", "Tick").Body.Instructions.Count(i =>
+        i.Operand is MethodReference r && r.FullName.Contains("ViewProbe::TeamVisible")) == 1
+    && !Calls(Method(plugin, "ImmersiveVoice.SquadObserver", "Stealth"), "ViewProbe::"),
+    "four-player stealth coordination reuses the single budgeted squad sight path");
+Check(Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "UpdateActionSpeech"), "TreatmentReadyMemory::Take"),
+    "treatment completion uses the evidence-bound fixed action memory");
+Check(Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "UpdateActionSpeech"), "GeneralHelpMemory::Take"),
+    "general help uses the evidence-bound fixed action memory");
+Check(Walk(new[] { Type(plugin, "ImmersiveVoice.NpcReplyObserver") }).SelectMany(t => t.Methods)
+        .Any(m => m.HasBody && Calls(m, "EnemyConversationMemory::Hear")),
+    "enemy conversation uses the evidence-bound fixed NPC memory");
 Check(Type(fika, "Fika.Core.Main.Components.ReviveInteractable").BaseType.FullName == "EFT.Interactive.InteractableObject"
     && !Calls(Method(fika, "Fika.Core.Main.Players.ObservedPlayer", "ToggleDowned"), "CreateCorpse"),
     "installed Fika's revivable ragdoll is not a real Corpse and downing does not create one");

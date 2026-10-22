@@ -27,6 +27,9 @@ namespace ImmersiveVoice
         private readonly ReloadDecision _reloadDecision = new ReloadDecision();
         private readonly MalfunctionMemory _malfunctions = new MalfunctionMemory();
         private readonly TreatmentMemory _treatment = new TreatmentMemory();
+        private readonly SearchSpeechMemory _search = new SearchSpeechMemory();
+        private readonly GeneralHelpMemory _help = new GeneralHelpMemory();
+        private readonly TreatmentReadyMemory _treatmentReady = new TreatmentReadyMemory();
         private readonly SquadObserver _squad;
         private readonly NpcReplyObserver _npc;
         private static readonly EBodyPart[] TreatmentParts = { EBodyPart.Head, EBodyPart.Chest, EBodyPart.Stomach,
@@ -38,6 +41,7 @@ namespace ImmersiveVoice
         private static readonly int KindCount = Enum.GetValues(typeof(ReactionKind)).Length;
         private readonly int[] _generated = new int[KindCount], _played = new int[KindCount], _suppressed = new int[KindCount];
         private int _damageVersion, _rawHits, _recoveryVersion = -1;
+        private long _treatmentOperation, _actionSequence;
         private float _lastDamage = -1000f;
         private readonly ContactMemory _memory = new ContactMemory();
         private readonly CombatReportMemory _reports = new CombatReportMemory();
@@ -51,7 +55,7 @@ namespace ImmersiveVoice
         private object _hands;
         private VisibleContact _gaze, _ally;
         private float _lastVision = -100f, _lastAllySeen = -100f, _lastShot = -100f;
-        private bool _collecting, _disposed, _faulted, _reload, _empty;
+        private bool _collecting, _disposed, _faulted, _reload, _empty, _holdFireDamageWindow;
         private string _deathTraceIdentity, _deathTraceReason;
         private float _deathTraceAt;
 
@@ -69,10 +73,31 @@ namespace ImmersiveVoice
         }
 
         private bool Collect => !_disposed && !_faulted && _collecting && _settings.Enabled.Value
-            && _player != null && _player.HealthController?.IsAlive == true && !_player.IsInventoryOpened;
+            && _player != null && _player.HealthController?.IsAlive == true
+            && (!_player.IsInventoryOpened || _search.Active);
         private string WeaponId => _gun?.Item?.Id.ToString();
         private bool WeaponFaulty => _gun != null && _gun.Item.MalfState.State != Weapon.EMalfunctionState.None;
         public bool Directing => !_faulted && _settings.Director.Value;
+        public bool SearchActive => !_disposed && !_faulted && _settings.Enabled.Value
+            && _settings.Director.Value && _search.Active;
+
+        public void SearchStarted(long operation, SearchSpeechTarget target)
+        {
+            if (_disposed || _faulted || !_settings.Enabled.Value || !_settings.Director.Value) return;
+            if (!_search.Begin(operation, target, Time.time)) return;
+            _queue.Clear(); _damage.Clear();
+            CancelTreatment("SearchStarted");
+            _help.Pause(); _treatmentReady.Pause();
+            _squad.Pause(Time.time); _npc.Pause();
+            if (Tracing) Record($"Event=SearchAction State=Started Operation={operation} Target={target}");
+        }
+
+        public void SearchEnded(long operation, bool completed)
+        {
+            _search.End(operation, completed);
+            _queue.RemoveKind(ReactionKind.ActionSpeech, completed ? "SearchEnded" : "SearchReplaced");
+            if (Tracing) Record($"Event=SearchAction State={(completed ? "Ended" : "Replaced")} Operation={operation}");
+        }
 
         public bool ActiveCombat(float now) => Collect && _combat.Active(now);
         public bool Settling(float now) => _combat.Settling(now);
@@ -150,7 +175,13 @@ namespace ImmersiveVoice
             }
             else if (attacker != null && ViewProbe.IsAlly(_player, attacker)
                 && (info.DamageType == EDamageType.Bullet || info.DamageType == EDamageType.Sniper))
+            {
+                SquadActorEvidence actor = _squad.Actor(attacker, now);
+                if (actor.Exists)
+                    _reports.ObserveTeammateHit(id, actor.Actor, now, true, true, true, true, true,
+                        info.Damage, actor.Slot, actor.Version);
                 _squad.PeerShot(attacker, id, now);
+            }
         }
         public void ObserveSpeech(Player speaker, TaggedClip clip, BetterSource source)
         {
@@ -195,6 +226,16 @@ namespace ImmersiveVoice
             if (_faulted) return;
             if (!_settings.Director.Value) _queue.Clear();
             _collecting = true;
+            if (_search.Active)
+            {
+                _npc.Active(false);
+                int searchVersion = _search.Take(now);
+                if (searchVersion != 0)
+                    Offer(ReactionKind.ActionSpeech, "search", 45, 0f,
+                        SearchSpeechMemory.OpportunityWindow, 30f, null, EPhraseTrigger.OnLoot,
+                        VoiceIntent.SearchLoot, actionVersion: searchVersion);
+                return;
+            }
             _npc.Active(_settings.Director.Value && _settings.NpcReplies.Value);
             if (_npc.Tick(now, Context, Tracing))
             {
@@ -208,8 +249,15 @@ namespace ImmersiveVoice
             var hands = _player.HandsController;
             if (!ReferenceEquals(hands, _hands))
             {
-                bool wasMedicine = _hands is Player.MedsController oldMeds && oldMeds.Item is Meds;
+                Player.MedsController oldMeds = _hands as Player.MedsController;
+                bool wasMedicine = oldMeds != null && oldMeds.Item is Meds;
                 bool isMedicine = hands is Player.MedsController newMeds && newMeds.Item is Meds;
+                if (wasMedicine)
+                {
+                    bool completed = oldMeds.CurrentOperation?._finished == true && !oldMeds.FailedToApply;
+                    _treatmentReady.End(_treatmentOperation, now, completed,
+                        ReadTreatmentReadyState(false, hands));
+                }
                 if (Tracing && (wasMedicine || isMedicine))
                     Record($"Event=TreatmentAction State={(isMedicine ? "ControllerObserved" : "ControllerEnded")} HealthEpisode={HealthEpisode} Injury={Context.Injury} Bleeding={Context.Bleeding} HeavyBleeding={Context.HeavyBleeding}");
                 if (_gun != null) _gun.OnShot -= OnShot;
@@ -222,6 +270,8 @@ namespace ImmersiveVoice
                 _queue.RemoveGroup("heal");
                 if (hands is Player.MedsController meds && meds.Item is Meds)
                 {
+                    _treatmentOperation = ++_actionSequence;
+                    _treatmentReady.Begin(_treatmentOperation, now, ReadTreatmentReadyState(true, hands));
                     // Starting treatment invalidates old reactions even when its
                     // start bark is disabled or the original voice lacks StartHeal.
                     _damage.Clear();
@@ -238,6 +288,7 @@ namespace ImmersiveVoice
                     if (_settings.Healing.Value)
                         Offer(ReactionKind.Heal, "heal", 82, 0.3f, 7f, 12f, null, EPhraseTrigger.StartHeal);
                 }
+                else _treatmentOperation = 0;
             }
             if (_squad.Enabled && _settings.TeamReplies.Value) _squad.ObserveWeapon(ReadyState, now);
             _malfunctions.Observe(WeaponId, WeaponFaulty);
@@ -275,10 +326,12 @@ namespace ImmersiveVoice
                         wounded ? SemanticVoice.Injury(context, false) : VoiceIntent.Recovery);
                 }
             }
-            if (_settings.Visual.Value)
+            string lost = _memory.Lost(now, combat);
+            if (lost != null)
             {
-                string lost = _memory.Lost(now, combat);
-                if (lost != null) Offer(ReactionKind.LostVisual, "lost", 55, 0.3f, 4f, 12f, lost, EPhraseTrigger.OnLostVisual);
+                _squad.ThreatLost(lost);
+                if (_settings.Visual.Value)
+                    Offer(ReactionKind.LostVisual, "lost", 55, 0.3f, 4f, 12f, lost, EPhraseTrigger.OnLostVisual);
             }
             UpdateMedicalRequest(now);
             UpdateTreatment(now);
@@ -302,6 +355,11 @@ namespace ImmersiveVoice
                     battleReport ? _squad.ReportDelay : 0.2f + (float)_random.NextDouble() * 0.2f,
                     decision.Reply ? 5f : 3f, decision.Reply ? 8f : SquadDialogue.Tactical(decision.Action) ? 8f : SquadMemory.DecisionGap, _squad.Subject(decision), phrase, intent, squad: decision, teamReport: battleReport);
             }
+            StealthApproachDecision stealthDecision = _squad.Enabled ? _squad.Stealth(now) : default;
+            if (stealthDecision.Exists)
+                Offer(ReactionKind.StealthStage, "team-stealth", 58, _squad.ReportDelay,
+                    2f, 20f, stealthDecision.Threat, EPhraseTrigger.Silence, VoiceIntent.TeamSilence,
+                    stealth: stealthDecision, teamReport: true);
             int readyVersion = _squad.TakeReady(now);
             if (readyVersion != 0)
                 Offer(ReactionKind.SquadReady, "team-ready", 50, 0f, _squad.ReadyExpiry - now, 30f,
@@ -313,6 +371,72 @@ namespace ImmersiveVoice
                     Offer(ReactionKind.FriendlyDown, "friendly-down", 74, 0.8f + (float)_random.NextDouble() * 0.7f,
                         5f, 45f, null, EPhraseTrigger.OnFriendlyDown, VoiceIntent.FriendlyDown, loss: loss);
             }
+            UpdateActionSpeech(now);
+        }
+
+        private TreatmentReadyState ReadTreatmentReadyState(bool operationActive, object hands)
+        {
+            BarkContext context = Context;
+            TreatmentSnapshot health = ReadTreatmentSnapshot(context);
+            return new TreatmentReadyState
+            {
+                Health = health,
+                DamageVersion = _damageVersion,
+                OperationActive = operationActive,
+                CanAct = !operationActive && HandsReadyForAction(hands)
+                    && _player.HealthController?.IsAlive == true && !health.Concern,
+                NearbyHuman = context.TeamInformation
+            };
+        }
+
+        private static bool HandsReadyForAction(object hands)
+        {
+            if (hands == null || hands is Player.MedsController) return false;
+            Player.FirearmController firearm = hands as Player.FirearmController;
+            return firearm == null || !(firearm.CurrentOperation is Player.FirearmController.MalfunctionOperation)
+                && !firearm.IsInSpawnOperation() && !firearm.IsInRemoveOperation()
+                && !firearm.IsInInteractionStrictCheck();
+        }
+
+        private GeneralHelpState ReadGeneralHelpState()
+        {
+            bool gun = _gun != null;
+            int ammo = gun ? _gun.Item.ChamberAmmoCount + _gun.Item.GetCurrentMagazineCount() : 0;
+            bool operating = gun && (_gun.CurrentOperation is Player.FirearmController.MalfunctionOperation
+                || _gun.IsInSpawnOperation() || _gun.IsInRemoveOperation() || _gun.IsInInteractionStrictCheck());
+            return new GeneralHelpState
+            {
+                WeaponPresent = gun,
+                WeaponReady = gun && CoverWeaponReady && !_reload && !operating
+                    && ReferenceEquals(_player.HandsController, _gun),
+                Reloading = _reload,
+                Faulty = WeaponFaulty,
+                Operating = operating,
+                AmmoKnown = gun,
+                Ammo = ammo,
+                NearbyHuman = Context.TeamInformation,
+                PreciseCover = _reload || WeaponFaulty || _queue.ContainsGroup("team-request"),
+                PreciseMedkit = _queue.ContainsGroup("medical-request"),
+                PreciseAmmo = _queue.ContainsGroup("ammo")
+            };
+        }
+
+        private void UpdateActionSpeech(float now)
+        {
+            TreatmentReadyState readyState = ReadTreatmentReadyState(_hands is Player.MedsController, _hands);
+            _treatmentReady.Observe(now, readyState);
+            int readyVersion = _treatmentReady.Take(now, readyState);
+            if (readyVersion != 0)
+                Offer(ReactionKind.ActionSpeech, "treatment-ready", 50, 0f,
+                    TreatmentReadyMemory.PlaybackWindow, 30f, null, EPhraseTrigger.Ready,
+                    VoiceIntent.TreatmentReady, actionVersion: readyVersion);
+
+            GeneralHelpState helpState = ReadGeneralHelpState();
+            int helpVersion = _help.Take(now, helpState);
+            if (helpVersion != 0)
+                Offer(ReactionKind.ActionSpeech, "general-help", 94, 0.15f,
+                    GeneralHelpMemory.DangerWindow, 45f, null, EPhraseTrigger.NeedHelp,
+                    VoiceIntent.GeneralHelp, actionVersion: helpVersion, teamReport: true);
         }
 
         private TreatmentSnapshot ReadTreatmentSnapshot(BarkContext context)
@@ -516,26 +640,39 @@ namespace ImmersiveVoice
 
         private void OfferCombatReport(CombatReport report)
         {
-            if (!report.Exists || !_settings.Visual.Value) return;
+            if (!report.Exists || (!_settings.Visual.Value && report.Kind != CombatReportKind.HoldFire)) return;
             EPhraseTrigger phrase = (EPhraseTrigger)CombatReportRules.ExactPhrase(report.Kind, true);
             VoiceIntent intent = report.Kind == CombatReportKind.EnemyHit ? VoiceIntent.EnemyHitReport
                 : report.Kind == CombatReportKind.ScavSpotted ? VoiceIntent.ScavReport
                 : report.Kind == CombatReportKind.ScavDown ? VoiceIntent.ScavDownReport
                 : report.Kind == CombatReportKind.KnifeKill ? VoiceIntent.KnifeKillReport
+                : report.Kind == CombatReportKind.GoodWork ? VoiceIntent.TeamGoodWork
+                : report.Kind == CombatReportKind.HoldFire ? VoiceIntent.TeamHoldFire
+                : report.Kind == CombatReportKind.SniperThreat ? VoiceIntent.SniperThreat
                 : VoiceIntent.TacticalEnemyDown;
-            int priority = report.Kind == CombatReportKind.EnemyHit ? 83
+            int priority = report.Kind == CombatReportKind.HoldFire ? 96
+                : report.Kind == CombatReportKind.SniperThreat ? 92
+                : report.Kind == CombatReportKind.GoodWork ? 86
+                : report.Kind == CombatReportKind.EnemyHit ? 83
                 : report.Kind == CombatReportKind.ScavSpotted ? 84 : 86;
-            float delay = (report.Kind == CombatReportKind.EnemyHit ? 0.25f : 0.45f) + _squad.ReportDelay;
+            float delay = report.Kind == CombatReportKind.HoldFire ? 0.15f
+                : (report.Kind == CombatReportKind.EnemyHit ? 0.25f : 0.45f) + _squad.ReportDelay;
             float ttl = report.Kind == CombatReportKind.EnemyHit ? 2.5f
-                : report.Kind == CombatReportKind.ScavSpotted ? 3f : 7f;
-            _queue.RemoveSubject("contact", report.Subject, "SpecificCombatReportPreferred");
-            if (report.Kind >= CombatReportKind.EnemyDown)
+                : report.Kind == CombatReportKind.ScavSpotted || report.Kind == CombatReportKind.SniperThreat
+                    || report.Kind == CombatReportKind.HoldFire ? 3f : 7f;
+            if (report.Subject != null)
+                _queue.RemoveSubject("contact", report.Subject, "SpecificCombatReportPreferred");
+            bool death = report.Kind == CombatReportKind.EnemyDown || report.Kind == CombatReportKind.ScavDown
+                || report.Kind == CombatReportKind.KnifeKill || report.Kind == CombatReportKind.GoodWork;
+            if (death)
             {
                 _queue.RemoveSubject("lost", report.Subject, "TargetAlreadyDown");
                 _queue.RemoveGroup("kill", "SpecificCombatReportPreferred");
             }
             Offer(ReactionKind.CombatReport, "combat-report", priority, delay, ttl, 0f, report.Subject,
-                phrase, intent, combatReport: report, teamReport: Context.TeamReport);
+                phrase, intent, combatReport: report,
+                teamReport: report.Kind == CombatReportKind.HoldFire || report.Kind == CombatReportKind.GoodWork
+                    || Context.TeamReport);
         }
 
         private void OnShot()
@@ -570,7 +707,10 @@ namespace ImmersiveVoice
             {
                 if (!Collect || !IsCombatDamage(info.DamageType) || info.Damage <= 0f) return;
                 FlushDamage(Time.time);
+                if (_damage.Hits == 0) _holdFireDamageWindow = false;
                 _lastDamage = Time.time;
+                _search.Danger();
+                _queue.RemoveGroup("search", "DangerDuringSearch");
                 _squad.CancelReady("NewDamage");
                 _damageVersion++;
                 CancelTreatment("DamageAfterTreatment");
@@ -580,11 +720,32 @@ namespace ImmersiveVoice
                 IPlayer attacker = info.Player?.iPlayer;
                 bool friendly = attacker != null && ViewProbe.IsAlly(_player, attacker);
                 if (!friendly && (attacker == null || attacker.ProfileId != _player.ProfileId)) _combat.Incoming(Time.time);
+                if (friendly && _settings.DamageReactions.Value)
+                {
+                    SquadActorEvidence actor = _squad.Actor(attacker, Time.time);
+                    CombatReport hold = _reports.ObserveFriendlyDamage(actor.Actor, Time.time,
+                        actor.Exists, actor.Exists, info.Damage, actor.Slot, actor.Version);
+                    if (hold.Exists)
+                    {
+                        _holdFireDamageWindow = true;
+                        OfferCombatReport(hold);
+                    }
+                }
                 if (attacker != null && !friendly && attacker.ProfileId != _player.ProfileId)
                 {
                     _memory.Hostile(attacker.ProfileId, Time.time);
-                    if (_gaze != null && _gaze.Alive && !_gaze.Ally && _gaze.Id == attacker.ProfileId
-                        && Time.time - _lastVision < 0.6f) _squad.Danger(Time.time, attacker.ProfileId);
+                    bool perceived = _gaze != null && _gaze.Alive && !_gaze.Ally
+                        && _gaze.Id == attacker.ProfileId && Time.time - _lastVision < 0.6f;
+                    if (perceived) _squad.Danger(Time.time, attacker.ProfileId);
+                    bool sniper = info.Weapon is Weapon weapon
+                        && (weapon.WeapClass == "sniperRifle" || weapon.WeapClass == "marksmanRifle");
+                    Player attackerPlayer = attacker as Player;
+                    float distance = attackerPlayer == null ? 0f
+                        : (attackerPlayer.Transform.position - _player.Transform.position).magnitude;
+                    CombatReport threat = _reports.ObserveHostileDamage(attacker.ProfileId, Time.time,
+                        true, perceived, true, info.Damage, sniper, false, distance);
+                    if (threat.Exists) OfferCombatReport(threat);
+                    _help.Danger(Time.time, _damageVersion);
                 }
                 if (!_settings.DamageReactions.Value) return;
                 _damage.Add(Time.time, info.Damage, HealthLevel(), friendly);
@@ -595,7 +756,11 @@ namespace ImmersiveVoice
         {
             if (!_damage.Ready(now)) return;
             float remaining = 7f - (now - _damage.StartedAt);
-            if (_settings.DamageReactions.Value && remaining > 0f)
+            if (_damage.FriendlyOnly && _holdFireDamageWindow)
+            {
+                if (Tracing) Record("Event=DamageAggregate Decision=Suppressed Reason=ExactHoldFirePreferred");
+            }
+            else if (_settings.DamageReactions.Value && remaining > 0f)
             {
                 // Re-read health after the burst rather than freezing the first impact.
                 InjuryLevel severity = (InjuryLevel)Math.Max((int)_damage.Severity, (int)HealthLevel());
@@ -606,6 +771,7 @@ namespace ImmersiveVoice
                     0f, remaining, _settings.InjuryRepeat.Value, null, phrase, intent, _damage.FriendlyOnly);
             }
             _damage.Clear();
+            _holdFireDamageWindow = false;
         }
 
         private EPhraseTrigger InjuryPhrase()
@@ -700,7 +866,8 @@ namespace ImmersiveVoice
         private void Offer(ReactionKind kind, string group, int priority, float delay, float ttl,
             float repeat, string subject, EPhraseTrigger phrase, VoiceIntent intent = VoiceIntent.None,
             bool friendlyDamage = false, int malfunctionEpisode = 0, SquadDecision squad = default, SquadLoss loss = default, int requestId = 0, int npcEpisode = 0, int readyVersion = 0, DialogueTicket dialogue = default,
-            CombatReport combatReport = default, EnemyDirectionDecision enemyDirection = default, bool teamReport = false)
+            CombatReport combatReport = default, EnemyDirectionDecision enemyDirection = default,
+            StealthApproachDecision stealth = default, int actionVersion = 0, bool teamReport = false)
         {
             if (!_settings.Director.Value) return;
             float now = Time.time;
@@ -711,8 +878,9 @@ namespace ImmersiveVoice
                 DamageVersion = _damageVersion, ExchangeVersion = _combat.ExchangeVersion, MalfunctionEpisode = malfunctionEpisode,
                 TreatmentVersion = _treatment.Version,
                 NpcEpisode = npcEpisode, ReadyVersion = readyVersion,
+                ActionVersion = actionVersion,
                 TeamReportVersion = teamReport ? _squad.ReportVersion : -1,
-                Squad = squad, Loss = loss, CombatReport = combatReport, EnemyDirection = enemyDirection,
+                Squad = squad, Loss = loss, CombatReport = combatReport, EnemyDirection = enemyDirection, Stealth = stealth,
                 FriendlyDamage = friendlyDamage,
                 Cue = new VoiceCue { Dialogue = squad.Reply ? squad.Dialogue : dialogue, RequestId = requestId == 0 ? _journal.Request() : requestId, Phrase = (int)phrase, Key = group + ":" + (subject ?? phrase.ToString()), Group = group,
                     Urgent = priority >= 82, Repeat = repeat, GroupGap = repeat, Intent = intent,
@@ -808,8 +976,15 @@ namespace ImmersiveVoice
                     r.InvalidReason = _settings.Visual.Value ? _memory.ContactBlockReason(r.Subject, Time.time) : "VisualDisabled";
                     return r.InvalidReason == null;
                 case ReactionKind.CombatReport:
-                    r.InvalidReason = !_settings.Visual.Value ? "VisualDisabled"
+                    bool reportEnabled = r.CombatReport.Kind == CombatReportKind.HoldFire
+                        ? _settings.DamageReactions.Value : _settings.Visual.Value;
+                    bool reportActor = (r.CombatReport.Kind != CombatReportKind.HoldFire
+                        && r.CombatReport.Kind != CombatReportKind.GoodWork)
+                        || _squad.ValidActor(r.CombatReport.Actor, r.CombatReport.ActorSlot,
+                            r.CombatReport.ActorVersion, Time.time);
+                    r.InvalidReason = !reportEnabled ? "ReportFeatureDisabled"
                         : !SquadDialogue.ReportCurrent(r.TeamReportVersion, _squad.ReportVersion) ? "TeammateReportedFirst"
+                        : !reportActor ? "ReportActorUnavailable"
                         : !_reports.Valid(r.CombatReport, Time.time) ? "CombatReportExpired" : null;
                     return r.InvalidReason == null;
                 case ReactionKind.EnemyDirection:
@@ -831,6 +1006,12 @@ namespace ImmersiveVoice
                     r.InvalidReason = _squad.ReadyRejection(r.ReadyVersion, Time.time);
                     return r.InvalidReason == null;
                 case ReactionKind.Squad: return ValidSquad(r);
+                case ReactionKind.StealthStage:
+                    r.InvalidReason = !SquadDialogue.ReportCurrent(r.TeamReportVersion, _squad.ReportVersion)
+                        ? "TeammateReportedFirst"
+                        : !_squad.StealthValid(r.Stealth, Time.time) ? "StealthApproachEnded" : null;
+                    return r.InvalidReason == null;
+                case ReactionKind.ActionSpeech: return ValidActionSpeech(r);
                 case ReactionKind.FriendlyDown: return !Context.Survival && _squad.Valid(r.Loss, Time.time);
                 case ReactionKind.NpcReply:
                     r.InvalidReason = _settings.NpcReplies.Value && _npc.Valid(r.NpcEpisode, Time.time, Context)
@@ -838,6 +1019,19 @@ namespace ImmersiveVoice
                     return r.InvalidReason == null;
                 default: return false;
             }
+        }
+
+        private bool ValidActionSpeech(Reaction reaction)
+        {
+            if (reaction.Cue.Intent == VoiceIntent.SearchLoot)
+                return _search.Valid(reaction.ActionVersion, Time.time);
+            if (reaction.Cue.Intent == VoiceIntent.GeneralHelp)
+                return _help.Valid(reaction.ActionVersion, Time.time, ReadGeneralHelpState());
+            if (reaction.Cue.Intent == VoiceIntent.TreatmentReady)
+                return _treatmentReady.Valid(reaction.ActionVersion, Time.time,
+                    ReadTreatmentReadyState(_hands is Player.MedsController, _hands));
+            reaction.InvalidReason = "UnknownActionSpeech";
+            return false;
         }
 
         private bool ValidAfterTreatment(Reaction reaction)
@@ -895,6 +1089,8 @@ namespace ImmersiveVoice
                 && !Valid(reaction)) return false;
             if ((reaction.Kind == ReactionKind.CombatReport || reaction.Kind == ReactionKind.EnemyDirection)
                 && !Valid(reaction)) return false;
+            if ((reaction.Kind == ReactionKind.StealthStage || reaction.Kind == ReactionKind.ActionSpeech)
+                && !Valid(reaction)) return false;
             if (reaction.Kind == ReactionKind.MedicalRequest && !ValidMedicalRequest(reaction, fresh: true)) return false;
             if (reaction.Kind == ReactionKind.AfterTreatment && !ValidAfterTreatment(reaction)) return false;
             if (reaction.Kind == ReactionKind.Squad && !ValidSquad(reaction)) return false;
@@ -927,6 +1123,8 @@ namespace ImmersiveVoice
         public void DiscardPending()
         {
             _queue.Clear(); _damage.Clear(); CancelTreatment("ManualInput");
+            _holdFireDamageWindow = false;
+            _search.Pause(); _help.Pause(); _treatmentReady.Pause();
             _squad.Pause(Time.time, manual: true);
             _npc.Pause();
         }
@@ -977,7 +1175,7 @@ namespace ImmersiveVoice
         {
             if (!_settings.Debug.Value && !_journal.Enabled) return;
             BarkContext c = Context;
-            string fields = FormattableString.Invariant($"Event={r.Kind} Request={r.Cue.RequestId} Priority={r.Priority} Group={r.Cue.Group} Remaining={r.ExpiresAt - Time.time:F2} Voice={_player?.Speaker?.PlayerVoice} Mode={c.Mode} Combat={c.Combat} FightSeconds={c.FightDuration:F1} PeakPressure={c.PeakPressure:F1} TookHostileHit={c.TookHostileHit} HadMalfunction={c.HadMalfunction} ObservedDowns={c.RecentObservedDowns} EndingSelected={c.EndingSelected} Exchange={r.ExchangeVersion}/{_combat.ExchangeVersion} FaultEpisode={r.MalfunctionEpisode} Health={c.Injury} HealthEpisode={_healthSpeech.Version} Bleeding={c.Bleeding} HeavyBleeding={c.HeavyBleeding} ArmFracture={c.ArmFracture} LegFracture={c.LegFracture} RecentHit={c.RecentlyHit} DamageVersion={r.DamageVersion}/{c.DamageVersion} Healing={c.Healing} Teammate={c.NearbyTeammate} RecentTeammate={c.RecentTeammate} AcuteHealth={r.Cue.AcuteHealth} Intent={r.Cue.Intent} Phrase={(EPhraseTrigger)r.Cue.Phrase} CombatReport={r.CombatReport.Kind} Direction={r.EnemyDirection.Direction} TeamReportVersion={r.TeamReportVersion}/{_squad.ReportVersion} SquadAction={r.Squad.Action} Peer={(r.Squad.Exists ? r.Squad.Slot : r.Loss.Exists ? r.Loss.Slot : -1)} PeerVersion={(r.Squad.Exists ? r.Squad.PeerVersion : r.Loss.Version)} Episode={r.Squad.Episode} Reply={r.Squad.Reply} DialogueCaller={r.Cue.Dialogue.Caller} DialogueEpoch={r.Cue.Dialogue.Epoch} DialogueSequence={r.Cue.Dialogue.Sequence} ReadyVersion={r.ReadyVersion} NpcEpisode={r.NpcEpisode} Decision={decision} Reason={reason}");
+            string fields = FormattableString.Invariant($"Event={r.Kind} Request={r.Cue.RequestId} Priority={r.Priority} Group={r.Cue.Group} Remaining={r.ExpiresAt - Time.time:F2} Voice={_player?.Speaker?.PlayerVoice} Mode={c.Mode} Combat={c.Combat} FightSeconds={c.FightDuration:F1} PeakPressure={c.PeakPressure:F1} TookHostileHit={c.TookHostileHit} HadMalfunction={c.HadMalfunction} ObservedDowns={c.RecentObservedDowns} EndingSelected={c.EndingSelected} Exchange={r.ExchangeVersion}/{_combat.ExchangeVersion} FaultEpisode={r.MalfunctionEpisode} Health={c.Injury} HealthEpisode={_healthSpeech.Version} Bleeding={c.Bleeding} HeavyBleeding={c.HeavyBleeding} ArmFracture={c.ArmFracture} LegFracture={c.LegFracture} RecentHit={c.RecentlyHit} DamageVersion={r.DamageVersion}/{c.DamageVersion} Healing={c.Healing} Teammate={c.NearbyTeammate} RecentTeammate={c.RecentTeammate} AcuteHealth={r.Cue.AcuteHealth} Intent={r.Cue.Intent} Phrase={(EPhraseTrigger)r.Cue.Phrase} CombatReport={r.CombatReport.Kind} Direction={r.EnemyDirection.Direction} Stage={(r.Stealth.Exists ? TacticalStageKind.Silence : TacticalStageKind.None)} ActionVersion={r.ActionVersion} TeamReportVersion={r.TeamReportVersion}/{_squad.ReportVersion} SquadAction={r.Squad.Action} Peer={(r.Squad.Exists ? r.Squad.Slot : r.Loss.Exists ? r.Loss.Slot : r.Stealth.Exists ? r.Stealth.Peer : -1)} PeerVersion={(r.Squad.Exists ? r.Squad.PeerVersion : r.Loss.Exists ? r.Loss.Version : r.Stealth.PeerVersion)} Episode={r.Squad.Episode} Reply={r.Squad.Reply} DialogueCaller={r.Cue.Dialogue.Caller} DialogueEpoch={r.Cue.Dialogue.Epoch} DialogueSequence={r.Cue.Dialogue.Sequence} ReadyVersion={r.ReadyVersion} NpcEpisode={r.NpcEpisode} Decision={decision} Reason={reason}");
             Record(fields);
         }
 
@@ -1000,6 +1198,7 @@ namespace ImmersiveVoice
             _queue.Clear(); _memory.Clear(); _reports.Clear(); _directions.Clear(); _combat.Clear();
             _damage.Clear(); _lastDamage = -1000f;
             _treatment.Clear();
+            _search.Pause(); _help.Clear(); _treatmentReady.Clear();
             _medicalRequest.Pause(); _lastMedicalScan = -1000f; _medicalSupplies = MedicalSupplies.Unknown;
             _gaze = _ally = null; _targets.Clear();
             _deathTraceIdentity = _deathTraceReason = null;
@@ -1011,6 +1210,7 @@ namespace ImmersiveVoice
             if (_gun != null) _gun.OnShot -= OnShot;
             _gun = null; _hands = null;
             _reload = _empty = false; _reloadDecision.Clear();
+            _treatmentOperation = 0; _holdFireDamageWindow = false;
         }
         public void Dispose()
         {

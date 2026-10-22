@@ -19,10 +19,16 @@ internal static class SquadDialogueScenarios
         }
         check(SquadDialogue.Command(23) == SquadCommand.Cover && SquadDialogue.Command(20) == SquadCommand.Cover,
             "actual reload and empty-weapon calls create support opportunities");
-        check(SquadDialogue.Command(75) == SquadCommand.Praise && SquadDialogue.Command(18) == SquadCommand.None,
-            "witnessed kill report can be acknowledged without treating native combat hints as proof");
-        check(SquadDialogue.ReportPhrase(69) && SquadDialogue.ReportPhrase(79)
-            && SquadDialogue.ReportPhrase(34) && SquadDialogue.ReportPhrase(45) && !SquadDialogue.ReportPhrase(18),
+        check(SquadDialogue.Command(75) == SquadCommand.None && SquadDialogue.Command(66) == SquadCommand.None
+            && SquadDialogue.Command(42) == SquadCommand.None && SquadDialogue.Command(71) == SquadCommand.None
+            && SquadDialogue.Command(39) == SquadCommand.None && SquadDialogue.Command(18) == SquadCommand.None,
+            "factual reports and fire-discipline lines never open a generic praise or reply loop");
+        check(SquadDialogue.ReportPhrase(69) && SquadDialogue.ReportPhrase(75) && SquadDialogue.ReportPhrase(79)
+            && SquadDialogue.ReportPhrase(34) && SquadDialogue.ReportPhrase(45)
+            && SquadDialogue.ReportPhrase(39) && SquadDialogue.ReportPhrase(42)
+            && SquadDialogue.ReportPhrase(66) && SquadDialogue.ReportPhrase(71)
+            && !SquadDialogue.ReportPhrase(10) && !SquadDialogue.ReportPhrase(18)
+            && !SquadDialogue.ReportPhrase(19),
             "only exact direction, combat-report and battle-tactic phrases join report turn-taking");
         check(Math.Abs(SquadDialogue.ReportDelay(10, 20, 30, 40) - .12f) < .001f
             && Math.Abs(SquadDialogue.ReportDelay(40, 10, 20, 30) - .66f) < .001f,
@@ -45,14 +51,6 @@ internal static class SquadDialogueScenarios
             && ReactionQueue.ExchangeInvalidates(ReactionKind.Recovery, VoiceIntent.Recovery, true)
             && ReactionQueue.ExchangeInvalidates(ReactionKind.AfterTreatment, VoiceIntent.Injury, true),
             "renewed combat still invalidates emotional and recovery endings");
-        var replies = Team(); replies.Sample(0, 0, P(0), P(3), true);
-        replies.Hear(0, SquadCommand.Praise, 0, 1);
-        for (float t = .25f; t <= 2; t += .25f) replies.Sample(0, t, P(0), P(3), true);
-        check(replies.Decide(2, false, true, true).Action == SquadAction.Compliment, "heard enemy-down report supports GoodWork");
-        replies.Sample(0, 11, P(0), P(3), true); replies.Hear(0, SquadCommand.Praise, 11, 1);
-        for (float t = 11.25f; t <= 13; t += .25f) replies.Sample(0, t, P(0), P(3), true);
-        check(replies.Decide(13, false, true, true).Reply, "new heard report is not starved by the old 25-second travel cooldown");
-
         var m = Team(); m.Combat(true); m.Threat("enemy", P(50), 0);
         for (float t = 0; t <= 4; t += .25f) m.Sample(0, t, P(t * 2), P(0), true);
         check(m.Decide(4, true, true, true).Action == SquadAction.Advancing, "local advance works while teammate stays on overwatch");

@@ -40,6 +40,8 @@ namespace ImmersiveVoice
         private TaggedClip _lastClip;
         private float _lastSpokenAt;
         private readonly Func<VoiceCue, string> _nativeGate;
+        private object _searchOperation;
+        private long _searchSequence;
         private bool Tracing => _settings.Debug.Value || _journal.Enabled;
         private void Trace(string fields)
         {
@@ -89,6 +91,13 @@ namespace ImmersiveVoice
         }
 
         public void ObservedHit(Player victim, DamageInfo info) => _director.ObservedHit(victim, info);
+        public void SearchChanged(Player player, object operation)
+        {
+            if (_disposed || player != Player || ReferenceEquals(operation, _searchOperation)) return;
+            if (_searchOperation != null) _director.SearchEnded(_searchSequence, operation == null);
+            _searchOperation = operation;
+            if (operation != null) _director.SearchStarted(++_searchSequence, SearchSpeechTarget.Container);
+        }
         public void Fault(Exception ex) { if (Tracing) Trace("Event=Fault Component=Session " + FaultDetails.Format(ex)); }
 
         // False means the player/world was disposed, and all listeners must go.
@@ -130,6 +139,7 @@ namespace ImmersiveVoice
             }
 
             _director.Tick(now);
+            bool searchOnly = _director.SearchActive;
             bool holdCalm = _director.HoldingCalmSpeech;
             // A long treatment must not accumulate an overdue idle monologue.
             if (_wasHoldingCalm && !holdCalm) _idleAt = now + IdleInterval();
@@ -146,7 +156,7 @@ namespace ImmersiveVoice
                 || Player.MovementContext.ClampedSpeed < 0.35f;
             bool aiming = Player.HandsController?.IsAiming == true;
             VoiceCue cue = null;
-            if (_settings.AutoContext.Value && Panel._quickCommandObject != null
+            if (!searchOnly && _settings.AutoContext.Value && Panel._quickCommandObject != null
                 && Panel._quickCommandObject.activeInHierarchy)
             {
                 EPhraseTrigger phrase = Panel.PrioritizedCommand;
@@ -216,7 +226,7 @@ namespace ImmersiveVoice
             if (speakerBlocked || _director.Reserve(now) || _policy.ContextPending(now) || Player.IsSprintEnabled || (_settings.RespectStealth.Value && stealth)
                 || !_policy.CanSpeak(now) || _director.OthersSpeaking(now)) return true;
 
-            if (combat && _settings.Combat.Value && now >= _combatAt)
+            if (!searchOnly && combat && _settings.Combat.Value && now >= _combatAt)
             {
                 _combatAt = now + Range(_settings.CombatMin.Value, _settings.CombatMax.Value);
                 VoiceCue bark = MakeCue(EPhraseTrigger.OnFight);
@@ -228,7 +238,7 @@ namespace ImmersiveVoice
                 else if (Tracing)
                     Trace($"Event=CombatBark Voice={_speaker.PlayerVoice} Phrase=OnFight Decision=Suppressed Reason={blocked ?? (!roll ? "Probability" : "NoMatchingBank")}");
             }
-            else if (!combat && !aiming && !holdCalm && !_director.Settling(now) && _settings.Idle.Value && now >= _idleAt)
+            else if (!searchOnly && !combat && !aiming && !holdCalm && !_director.Settling(now) && _settings.Idle.Value && now >= _idleAt)
             {
                 _idleAt = now + IdleInterval();
                 if (HasBank(EPhraseTrigger.OnMutter))
@@ -268,8 +278,10 @@ namespace ImmersiveVoice
             if (!_settings.Enabled.Value) return "Disabled";
             if (_silent) return "SilenceToggle";
             if (_settings.FocusOnly.Value && !Application.isFocused) return "Unfocused";
-            if (Player.IsInventoryOpened) return "Inventory";
-            if (!Panel.gameObject.activeInHierarchy || Panel.GesturesMenu.IsShowing || Panel.DropdownPanelActive || Cursor.visible) return "Menu";
+            if (Player.IsInventoryOpened && !_director.SearchActive) return "Inventory";
+            if (!Panel.gameObject.activeInHierarchy || Panel.GesturesMenu.IsShowing || Panel.DropdownPanelActive)
+                return "Menu";
+            if (Cursor.visible && !(_director.SearchActive && Player.IsInventoryOpened)) return "Menu";
             if (Time.timeScale <= 0f) return "GamePaused";
             if (Player.VoipController?.Status?.Value == EVoipControllerStatus.Talking || (Player.VoipController?.TalkDetected?.Value ?? false)) return "Voip";
             return null;
@@ -321,7 +333,10 @@ namespace ImmersiveVoice
                 || phrase == EPhraseTrigger.OnPosition || phrase == EPhraseTrigger.GoodWork || phrase == EPhraseTrigger.Ready
                 || phrase == EPhraseTrigger.GoForward || phrase == EPhraseTrigger.GetBack
                 || phrase == EPhraseTrigger.FollowMe || phrase == EPhraseTrigger.CoverMe || phrase == EPhraseTrigger.Regroup
-                || phrase == EPhraseTrigger.HoldPosition || phrase == EPhraseTrigger.OnFriendlyDown) return true;
+                || phrase == EPhraseTrigger.HoldPosition || phrase == EPhraseTrigger.OnFriendlyDown
+                || phrase == EPhraseTrigger.HoldFire || phrase == EPhraseTrigger.SniperPhrase
+                || phrase == EPhraseTrigger.Silence || phrase == EPhraseTrigger.OnLoot
+                || phrase == EPhraseTrigger.NeedHelp || phrase == EPhraseTrigger.OnEnemyConversation) return true;
             if (!_director.Directing) return false;
             return phrase == EPhraseTrigger.OnWeaponReload || phrase == EPhraseTrigger.NeedAmmo
                 || phrase == EPhraseTrigger.OnWeaponJammed || phrase == EPhraseTrigger.WeaponBroken

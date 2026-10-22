@@ -93,5 +93,160 @@ internal static class EnemyDirectionScenarios
         check(GC.GetAllocatedBytesForCurrentThread() == allocated,
             "four direction memories allocate zero managed bytes across 100,000 updates");
         Console.WriteLine($"Direction benchmark: 100,000 four-player updates in {elapsed * 1000d / Stopwatch.Frequency:F2} ms (model only).");
+
+        StealthAndConversation(check);
+    }
+
+    private static void Step(StealthApproachMemory memory, float now, float selfX, float otherX,
+        bool stealth, int peer = 0, bool perceived = true, bool sameLayer = true, bool combat = false,
+        string threat = "enemy", bool alive = true)
+    {
+        memory.Threat(threat, P(40, 0), alive, true, now);
+        memory.Sample(peer, now, P(selfX, 0), P(otherX, 1 + peer), perceived, sameLayer,
+            stealth, stealth, combat);
+    }
+
+    private static StealthApproachDecision CompleteApproach(StealthApproachMemory memory, int peer = 0)
+    {
+        for (int i = 0; i <= 3; i++)
+        {
+            float now = i * .25f;
+            Step(memory, now, now * 2f, now * 2f + 1f, false, peer);
+        }
+        for (int i = 1; i <= 7; i++)
+        {
+            float now = .75f + i * .25f;
+            float position = 1.5f + i * .1f;
+            Step(memory, now, position, position + 1f, true, peer);
+        }
+        return memory.Select(2.5f);
+    }
+
+    private static void StealthAndConversation(Action<bool, string> check)
+    {
+        check(TacticalStageRules.Phrase(TacticalStageKind.EnemyConversation) == 17
+            && TacticalStageRules.Phrase(TacticalStageKind.Silence) == 39,
+            "supported stage evidence maps only to OnEnemyConversation and Silence");
+        check(!TacticalStageRules.SupportedPhrase(35) && !TacticalStageRules.SupportedPhrase(58)
+            && !TacticalStageRules.SupportedPhrase(77),
+            "Look, Clear, and alternate LostVisual remain unsupported without exact perceptible evidence");
+
+        var stealth = new StealthApproachMemory();
+        var approach = CompleteApproach(stealth);
+        check(approach.Exists && stealth.Valid(approach, 2.5f),
+            "joint normal movement followed by sustained quiet approach to one live threat supports Silence");
+        check(!stealth.Select(2.6f).Exists,
+            "one shared approach chooses Silence only once even with four-player sampling");
+
+        stealth = new StealthApproachMemory();
+        for (int i = 0; i <= 10; i++) Step(stealth, i * .25f, i * .1f, i * .1f + 1f, true);
+        check(!stealth.Select(2.5f).Exists,
+            "starting already in stealth cannot manufacture the required group transition");
+        stealth = new StealthApproachMemory();
+        for (int i = 0; i <= 3; i++) Step(stealth, i * .25f, i * .5f, i * .5f + 1f, false);
+        for (int i = 1; i <= 7; i++)
+        {
+            float now = .75f + i * .25f, x = 1.5f + i * .1f;
+            stealth.Threat("enemy", P(40, 0), true, true, now);
+            stealth.Sample(0, now, P(x, 0), P(x + 1f, 1), true, true, true, false, false);
+        }
+        check(!stealth.Select(2.5f).Exists,
+            "only the local player's slow or crouched movement cannot command a normally moving teammate");
+        stealth = new StealthApproachMemory();
+        for (int i = 0; i <= 3; i++) Step(stealth, i * .25f, i * .5f, i * .5f + 1f, false);
+        for (int i = 1; i <= 7; i++)
+        {
+            float now = .75f + i * .25f, x = 1.5f + i * .1f;
+            Step(stealth, now, x, x + 1f, true, perceived: false);
+        }
+        check(!stealth.Select(2.5f).Exists,
+            "an unperceived teammate cannot turn the local stealth key or stance into a voice command");
+
+        stealth = new StealthApproachMemory();
+        for (int i = 0; i <= 3; i++) Step(stealth, i * .25f, i * .5f, i * .5f + 1f, false);
+        for (int i = 1; i <= 7; i++)
+        {
+            float now = .75f + i * .25f, x = 1.5f + i * .1f;
+            Step(stealth, now, x, x + 1f, true, sameLayer: i != 3);
+        }
+        check(!stealth.Select(2.5f).Exists,
+            "losing the teammate layer during the transition discards accumulated quiet movement");
+
+        stealth = new StealthApproachMemory();
+        approach = CompleteApproach(stealth);
+        stealth.Threat("enemy", P(40, 0), false, true, 2.6f);
+        check(!stealth.Valid(approach, 2.6f), "a downed or lost threat cancels queued Silence");
+        stealth = new StealthApproachMemory();
+        approach = CompleteApproach(stealth);
+        stealth.Lost("enemy");
+        check(!stealth.Valid(approach, 2.6f), "an explicit visual-loss transition also cancels queued Silence");
+        stealth = new StealthApproachMemory();
+        approach = CompleteApproach(stealth);
+        stealth.Threat("other", P(35, 0), true, true, 2.6f);
+        check(!stealth.Valid(approach, 2.6f) && !stealth.Select(2.6f).Exists,
+            "transferring focus to another threat requires a new observed movement transition");
+        stealth = new StealthApproachMemory();
+        approach = CompleteApproach(stealth);
+        Step(stealth, 2.6f, 2.3f, 3.3f, true, combat: true);
+        check(!stealth.Valid(approach, 2.6f) && !stealth.Select(2.6f).Exists,
+            "actual combat cancels stealth-stage speech immediately");
+
+        stealth = new StealthApproachMemory();
+        for (int i = 0; i <= 3; i++)
+        {
+            float now = i * .25f;
+            for (int peer = 0; peer < StealthApproachMemory.PeerCapacity; peer++)
+                Step(stealth, now, now * 2f, now * 2f + 1f, false, peer);
+        }
+        for (int i = 1; i <= 7; i++)
+        {
+            float now = .75f + i * .25f, x = 1.5f + i * .1f;
+            for (int peer = 0; peer < StealthApproachMemory.PeerCapacity; peer++)
+                Step(stealth, now, x, x + 1f, true, peer);
+        }
+        check(stealth.Select(2.5f).Exists && !stealth.Select(2.5f).Exists,
+            "three eligible teammates still produce one local Silence decision");
+
+        var conversation = new EnemyConversationMemory();
+        check(!conversation.Hear("npc", 1, 0, false, true, true, true).Exists
+            && !conversation.Hear("npc", 1, 0, true, false, true, true).Exists
+            && !conversation.Hear("npc", 1, 0, true, true, false, true).Exists
+            && !conversation.Hear("npc", 1, 0, true, true, true, false).Exists,
+            "hidden AI state, inaudible audio, non-hostility, and physiological noise cannot assert enemy conversation");
+        var heard = conversation.Hear("npc", 1, 1, true, true, true, true);
+        check(heard.Exists && conversation.Valid(heard, 1.1f),
+            "a real audible hostile NPC voice supports exact OnEnemyConversation");
+        check(!conversation.Hear("npc", 1, 2, true, true, true, true).Exists,
+            "the same NPC is reported once in a raid despite repeated native callbacks");
+        check(conversation.Hear("other", 1, 2, true, true, true, true).Exists,
+            "a distinct actually heard hostile NPC retains its own bounded observation");
+        check(conversation.Hear("third", 1, 2.1f, true, true, true, true).Exists
+            && conversation.Hear("fourth", 1, 2.2f, true, true, true, true).Exists
+            && !conversation.Hear("overflow", 1, 2.3f, true, true, true, true).Exists
+            && !conversation.Hear("npc", 1, 2.4f, true, true, true, true).Exists,
+            "four-NPC storage fails closed without evicting and repeating an earlier raid identity");
+        check(!conversation.Valid(heard, 6.1f), "enemy conversation expires instead of replaying after the exchange");
+        check(conversation.Hear("npc", 2, 10, true, true, true, true).Exists,
+            "a new raid round resets per-NPC conversation deduplication");
+        conversation.Clear();
+        check(!conversation.Valid(heard, 1.1f), "lifecycle clear discards queued enemy conversation");
+
+        var four = new[] { new StealthApproachMemory(), new StealthApproachMemory(),
+            new StealthApproachMemory(), new StealthApproachMemory() };
+        long allocated = GC.GetAllocatedBytesForCurrentThread(), start = Stopwatch.GetTimestamp();
+        for (int i = 0; i < 100000; i++)
+        {
+            float now = i * .25f, x = i % 100;
+            for (int client = 0; client < four.Length; client++)
+            {
+                four[client].Threat("enemy", P(1000, 0), true, true, now);
+                for (int peer = 0; peer < StealthApproachMemory.PeerCapacity; peer++)
+                    four[client].Sample(peer, now, P(x, 0), P(x + 1, peer + 1), true, true, true, true, false);
+            }
+        }
+        long elapsed = Stopwatch.GetTimestamp() - start;
+        check(GC.GetAllocatedBytesForCurrentThread() == allocated,
+            "four clients with three peers allocate zero managed bytes across 100,000 stage updates");
+        Console.WriteLine($"Stage benchmark: 100,000 four-client/three-peer updates in {elapsed * 1000d / Stopwatch.Frequency:F2} ms (model only).");
     }
 }

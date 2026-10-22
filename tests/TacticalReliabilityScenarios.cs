@@ -66,6 +66,14 @@ internal static class TacticalReliabilityScenarios
         freshReport.RecentlyHit = false; freshReport.DamageVersion = 8;
         check(SemanticVoice.RejectionReason(VoiceIntent.TeamSpreadOut, freshReport, 7) == "DamageAfterRequest",
             "new damage invalidates an older queued emergency report");
+        check(SemanticVoice.RejectionReason(VoiceIntent.SniperThreat, freshReport, 7) == null,
+            "a confirmed sniper warning survives a follow-up bullet while its short factual window remains valid");
+        freshReport.Injury = InjuryLevel.BadlyInjured;
+        check(SemanticVoice.RejectionReason(VoiceIntent.TeamGoodWork, freshReport, 8) == "SevereInjury",
+            "praise yields to immediate survival after the rescue evidence was recorded");
+        freshReport.Injury = InjuryLevel.Healthy; freshReport.NearbyTeammate = false;
+        check(SemanticVoice.RejectionReason(VoiceIntent.TeamGoodWork, freshReport, 8) == "TeammateNoLongerNearby",
+            "GoodWork still requires the exact teammate relationship to remain present at playback");
 
         check(VisualRules.RecognizableEnemy(false, true, true, false, true), "PMC can recognize an actually visible ordinary Scav before firing");
         check(VisualRules.RecognizableEnemy(false, true, true, true, false), "visible AI PMC is recognizable to local PMC");

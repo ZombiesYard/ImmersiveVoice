@@ -135,14 +135,15 @@ namespace ImmersiveVoice
             => phrase == 31 ? SquadCommand.Follow : phrase == 30 || phrase == 43 || phrase == 23 || phrase == 20 ? SquadCommand.Cover
                 : phrase == 33 || phrase == 34 ? SquadCommand.Advance : phrase == 32 ? SquadCommand.Retreat
                 : phrase == 47 ? SquadCommand.Regroup : phrase == 36 ? SquadCommand.Hold
-                : phrase == 75 ? SquadCommand.Praise : SquadCommand.None;
+                : SquadCommand.None;
         public static bool ReadyCall(int phrase) => phrase == 30 || phrase == 43 || phrase == 23 || phrase == 20;
         public static bool Tactical(SquadAction action) => action == SquadAction.Covering || action == SquadAction.Advancing
             || action == SquadAction.Retreating || action == SquadAction.RequestCover
             || action == SquadAction.PushNow || action == SquadAction.Suppressing
             || action == SquadAction.SpreadOut || action == SquadAction.GetInCover;
         public static bool ReportPhrase(int phrase)
-            => phrase == 69 || phrase == 70 || phrase == 72 || phrase == 73 || phrase == 74
+            => phrase == 39 || phrase == 42 || phrase == 66 || phrase == 71
+                || phrase == 69 || phrase == 70 || phrase == 72 || phrase == 73 || phrase == 74
                 || phrase == 75 || phrase == 76 || phrase == 78 || phrase == 79
                 || phrase == 34 || phrase == 43 || phrase == 44 || phrase == 45;
         public static float ReportDelay(int local, int peer0, int peer1, int peer2)

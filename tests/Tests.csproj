@@ -20,6 +20,7 @@
     <Compile Include="../src/TreatmentMemory.cs" Link="TreatmentMemory.cs" />
     <Compile Include="../src/HealthSpeechMemory.cs" Link="HealthSpeechMemory.cs" />
     <Compile Include="../src/CombatReportMemory.cs" Link="CombatReportMemory.cs" />
+    <Compile Include="../src/ActionSpeechMemory.cs" Link="ActionSpeechMemory.cs" />
     <Compile Include="../src/VisualRules.cs" Link="VisualRules.cs" />
     <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />
     <Compile Include="../src/SquadAwareness.cs" Link="SquadAwareness.cs" />

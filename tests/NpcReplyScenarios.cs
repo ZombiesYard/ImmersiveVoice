@@ -87,6 +87,28 @@ internal static class NpcReplyScenarios
         check(Reply(NpcLine.Mutter, NpcRelation.Hostile) == NpcResponse.Noise
             && Reply(NpcLine.Mutter, NpcRelation.Hostile, engaged: true) == NpcResponse.Retort,
             "overheard enemy chatter and active combat have different meanings");
+        check(NpcDialogueRules.EnemyConversation(NpcLine.Taunt, NpcRelation.Hostile, false)
+            && NpcDialogueRules.EnemyConversation(NpcLine.Combat, NpcRelation.Hostile, false)
+            && NpcDialogueRules.EnemyConversation(NpcLine.Mutter, NpcRelation.Hostile, false),
+            "audible hostile taunts, combat speech, and mutters can request one exact enemy-conversation reply");
+        check(!NpcDialogueRules.EnemyConversation(NpcLine.Reload, NpcRelation.Hostile, false)
+            && !NpcDialogueRules.EnemyConversation(NpcLine.Taunt, NpcRelation.Unknown, false)
+            && !NpcDialogueRules.EnemyConversation(NpcLine.Taunt, NpcRelation.Hostile, true),
+            "non-conversation lines, uncertain speakers, and survival context cannot assert an enemy conversation");
+        var exactConversation = new EnemyConversationMemory();
+        var exactDecision = exactConversation.Hear("hostile", 1, 10, true, true, true,
+            NpcDialogueRules.EnemyConversation(NpcLine.Combat, NpcRelation.Hostile, false));
+        check(exactDecision.Exists && exactConversation.Valid(exactDecision, 10.1f)
+            && !exactConversation.Hear("hostile", 1, 11, true, true, true, true).Exists,
+            "each actually heard hostile NPC gets one bounded exact reply opportunity per raid");
+        var longConversation = new EnemyConversationMemory();
+        var afterLongLine = longConversation.Hear("long-hostile", 1, 25, true, true, true, true);
+        check(afterLongLine.Exists && longConversation.Valid(afterLongLine, 29.99f)
+            && !longConversation.Valid(afterLongLine, 30.01f),
+            "the exact reply window can be anchored to speech end so a long native line does not expire while still playing");
+        check(NpcDialogueRules.Intent(NpcResponse.EnemyConversation) == VoiceIntent.NpcEnemyConversation
+            && NpcDialogueRules.Priority(NpcResponse.EnemyConversation) > NpcDialogueRules.Priority(NpcResponse.Covering),
+            "the exact enemy-conversation response retains its own intent and wins NPC candidate selection");
         check(Reply(NpcLine.Reload, NpcRelation.Hostile, engaged: true) == NpcResponse.Retort
             && Reply(NpcLine.Help, NpcRelation.Hostile, engaged: true) == NpcResponse.Retort,
             "enemy reload and help speech can motivate a combat response without inventing a reload callout");
@@ -129,13 +151,17 @@ internal static class NpcReplyScenarios
         check(NpcDialogueRules.PeerAnswer(NpcResponse.Covering, NpcResponse.Covering)
             && !NpcDialogueRules.PeerAnswer(NpcResponse.Covering, NpcResponse.Retort),
             "unrelated teammate taunts cannot swallow a friendly covering response");
+        check(NpcDialogueRules.PeerAnswer(NpcResponse.EnemyConversation, NpcResponse.EnemyConversation)
+            && !NpcDialogueRules.PeerAnswer(NpcResponse.EnemyConversation, NpcResponse.Retort),
+            "only the same exact teammate response can close an enemy-conversation turn");
         check(NpcDialogueRules.Priority(NpcResponse.Covering) > NpcDialogueRules.Priority(NpcResponse.Mutter)
             && NpcDialogueRules.Priority(NpcResponse.Retort) > NpcDialogueRules.Priority(NpcResponse.Mutter),
             "combat or coordination replies can supersede a pending calm mutter");
         var replacement = new NpcReplyMemory(); replacement.Begin(10, 12, 1, 0); replacement.Supersede();
         check(replacement.Begin(11, 13, 1, 0) == null, "higher-priority dialogue is not lost to its replaced candidate's admission throttle");
         context = new BarkContext { Injury = InjuryLevel.Healthy };
-        foreach (var intent in new[] { VoiceIntent.NpcNoise, VoiceIntent.NpcMutter, VoiceIntent.NpcFollowing, VoiceIntent.NpcCovering, VoiceIntent.NpcAcknowledge })
+        foreach (var intent in new[] { VoiceIntent.NpcNoise, VoiceIntent.NpcMutter, VoiceIntent.NpcFollowing,
+            VoiceIntent.NpcCovering, VoiceIntent.NpcAcknowledge, VoiceIntent.NpcEnemyConversation })
         {
             context.Healing = false;
             check(SemanticVoice.StillValid(intent, context, 0), "healthy dialogue allowed: " + intent);

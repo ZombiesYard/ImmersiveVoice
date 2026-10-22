@@ -169,3 +169,310 @@ namespace ImmersiveVoice
         }
     }
 }
+
+namespace ImmersiveVoice
+{
+    internal enum TacticalStageKind { None, Silence, EnemyConversation }
+
+    internal static class TacticalStageRules
+    {
+        public static int Phrase(TacticalStageKind kind)
+            => kind == TacticalStageKind.EnemyConversation ? 17
+                : kind == TacticalStageKind.Silence ? 39 : 0;
+
+        // Clear cannot be inferred from a failed sight probe; Look has no exact
+        // observable object/recipient contract; LostVisual is already represented
+        // by the distinct existing OnLostVisual event. None receives a substitute.
+        public static bool SupportedPhrase(int phrase) => phrase == 17 || phrase == 39;
+    }
+
+    internal struct StealthApproachDecision
+    {
+        public int Peer, PeerVersion, ThreatVersion, Actor;
+        public string Threat;
+        public float SelectedAt;
+        public bool Exists => Peer >= 0 && Threat != null && ThreatVersion != 0;
+    }
+
+    // Consumes the director's existing quarter-second local/teammate samples and
+    // visible-threat observations. Three peer slots plus the local human are the
+    // entire four-player squad; no physics, roster scan, LINQ, or network work.
+    internal sealed class StealthApproachMemory
+    {
+        public const int PeerCapacity = 3, ThreatCapacity = 4;
+        public const float ThreatFreshness = 1f, NormalTransition = 0.5f, StealthDuration = 1.5f;
+        private const float NormalSpeed = 0.6f, StealthSpeed = 0.1f, LayerTolerance = 2.5f;
+
+        private sealed class ThreatSlot
+        {
+            public string Id;
+            public SquadPoint Position;
+            public float SeenAt = -1000f;
+            public bool Alive;
+        }
+        private sealed class PeerSlot
+        {
+            public int Version;
+            public float SampleAt = -1000f, NormalSince = -1f, StealthSince = -1f;
+            public SquadPoint Self, Other;
+            public bool HadNormal, Stealthing, Ready;
+        }
+
+        private readonly ThreatSlot[] _threats = { new ThreatSlot(), new ThreatSlot(), new ThreatSlot(), new ThreatSlot() };
+        private readonly PeerSlot[] _peers = { new PeerSlot(), new PeerSlot(), new PeerSlot() };
+        private string _activeThreat;
+        private int _threatVersion;
+        private bool _selected, _combat;
+
+        public void Threat(string id, SquadPoint position, bool alive, bool focused, float now)
+        {
+            if (string.IsNullOrEmpty(id) || !position.Finite) return;
+            ThreatSlot slot = GetThreat(id);
+            slot.Position = position;
+            slot.SeenAt = now;
+            slot.Alive = alive;
+            if (!alive)
+            {
+                if (_activeThreat == id) CancelThreat();
+                return;
+            }
+            if (!focused || _activeThreat == id) return;
+            _activeThreat = id;
+            _threatVersion++;
+            if (_threatVersion == 0) _threatVersion++;
+            _selected = false;
+            ResetPeers();
+        }
+
+        public void Lost(string id)
+        {
+            if (!string.IsNullOrEmpty(id) && _activeThreat == id) CancelThreat();
+        }
+
+        public void Sample(int peer, float now, SquadPoint self, SquadPoint other, bool perceivedHuman,
+            bool sameLayer, bool selfStealth, bool otherStealth, bool combat)
+        {
+            if ((uint)peer >= PeerCapacity) return;
+            _combat = combat;
+            PeerSlot state = _peers[peer];
+            ThreatSlot threat = CurrentThreat(now);
+            if (combat || threat == null || !perceivedHuman || !sameLayer || !self.Finite || !other.Finite
+                || Math.Abs(self.Y - other.Y) > LayerTolerance)
+            {
+                Reset(state);
+                if (combat || threat == null) CancelThreat();
+                return;
+            }
+
+            float dt = now - state.SampleAt;
+            if (state.SampleAt < -900f || dt <= 0f || dt > 1f)
+            {
+                Reset(state);
+                state.SampleAt = now;
+                state.Self = self;
+                state.Other = other;
+                return;
+            }
+
+            bool selfNormal = !selfStealth && MovingToward(state.Self, self, threat.Position, dt, NormalSpeed);
+            bool otherNormal = !otherStealth && MovingToward(state.Other, other, threat.Position, dt, NormalSpeed);
+            bool selfQuiet = selfStealth && MovingToward(state.Self, self, threat.Position, dt, StealthSpeed);
+            bool otherQuiet = otherStealth && MovingToward(state.Other, other, threat.Position, dt, StealthSpeed);
+            if (selfNormal && otherNormal)
+            {
+                if (state.NormalSince < 0f) state.NormalSince = now;
+                if (now - state.NormalSince + 0.0001f >= NormalTransition) state.HadNormal = true;
+                state.StealthSince = -1f;
+                state.Stealthing = state.Ready = false;
+            }
+            else if (state.HadNormal && selfQuiet && otherQuiet)
+            {
+                if (state.StealthSince < 0f) state.StealthSince = now;
+                state.Stealthing = true;
+                state.Ready = now - state.StealthSince + 0.0001f >= StealthDuration;
+            }
+            else
+            {
+                state.NormalSince = -1f;
+                state.StealthSince = -1f;
+                state.Stealthing = state.Ready = false;
+                if (!selfQuiet || !otherQuiet) state.HadNormal = false;
+            }
+            state.SampleAt = now;
+            state.Self = self;
+            state.Other = other;
+        }
+
+        public StealthApproachDecision Select(float now)
+        {
+            if (_selected || _combat || CurrentThreat(now) == null) return default;
+            for (int i = 0; i < PeerCapacity; i++)
+            {
+                PeerSlot peer = _peers[i];
+                if (!peer.Ready || now - peer.SampleAt > 0.4f) continue;
+                _selected = true;
+                peer.Ready = false;
+                return new StealthApproachDecision
+                {
+                    Peer = i,
+                    PeerVersion = peer.Version,
+                    Threat = _activeThreat,
+                    ThreatVersion = _threatVersion,
+                    SelectedAt = now
+                };
+            }
+            return default;
+        }
+
+        public bool Valid(StealthApproachDecision decision, float now)
+        {
+            if (!decision.Exists || _combat || decision.Peer < 0 || decision.Peer >= PeerCapacity
+                || decision.ThreatVersion != _threatVersion || decision.Threat != _activeThreat
+                || now - decision.SelectedAt > 2f || CurrentThreat(now) == null) return false;
+            PeerSlot peer = _peers[decision.Peer];
+            return peer.Version == decision.PeerVersion && peer.Stealthing && now - peer.SampleAt <= 0.4f;
+        }
+
+        public void Clear()
+        {
+            for (int i = 0; i < ThreatCapacity; i++)
+            {
+                _threats[i].Id = null;
+                _threats[i].SeenAt = -1000f;
+                _threats[i].Alive = false;
+            }
+            _activeThreat = null;
+            _threatVersion++;
+            _selected = _combat = false;
+            ResetPeers();
+        }
+
+        public void ResetPeer(int peer)
+        {
+            if ((uint)peer >= PeerCapacity) return;
+            PeerSlot state = _peers[peer];
+            if (state.SampleAt > -900f || state.HadNormal || state.Stealthing || state.Ready) Reset(state);
+        }
+
+        private ThreatSlot CurrentThreat(float now)
+        {
+            if (_activeThreat == null) return null;
+            for (int i = 0; i < ThreatCapacity; i++)
+            {
+                ThreatSlot slot = _threats[i];
+                if (slot.Id == _activeThreat && slot.Alive && now - slot.SeenAt <= ThreatFreshness) return slot;
+            }
+            return null;
+        }
+
+        private ThreatSlot GetThreat(string id)
+        {
+            int selected = 0;
+            for (int i = 0; i < ThreatCapacity; i++)
+            {
+                if (_threats[i].Id == id) return _threats[i];
+                if (_threats[i].Id == null || _threats[i].SeenAt < _threats[selected].SeenAt) selected = i;
+            }
+            ThreatSlot slot = _threats[selected];
+            if (slot.Id == _activeThreat) CancelThreat();
+            slot.Id = id;
+            slot.SeenAt = -1000f;
+            slot.Alive = false;
+            return slot;
+        }
+
+        private static bool MovingToward(SquadPoint before, SquadPoint current, SquadPoint target, float dt, float speed)
+        {
+            SquadPoint move = current - before;
+            float minimum = speed * dt;
+            if (move.FlatSquared < minimum * minimum || move.FlatSquared > 100f) return false;
+            SquadPoint toward = target - before;
+            return SquadPoint.Dot(move, toward) > 0f && (target - current).FlatSquared < toward.FlatSquared;
+        }
+
+        private void CancelThreat()
+        {
+            if (_activeThreat == null) return;
+            _activeThreat = null;
+            _threatVersion++;
+            _selected = false;
+            ResetPeers();
+        }
+        private void ResetPeers()
+        {
+            for (int i = 0; i < PeerCapacity; i++) Reset(_peers[i]);
+        }
+        private static void Reset(PeerSlot peer)
+        {
+            peer.Version++;
+            peer.SampleAt = -1000f;
+            peer.NormalSince = peer.StealthSince = -1f;
+            peer.HadNormal = peer.Stealthing = peer.Ready = false;
+        }
+    }
+
+    internal struct EnemyConversationDecision
+    {
+        public string Npc;
+        public int Round, Version;
+        public float HeardAt;
+        public bool Exists => Npc != null && Round != 0 && Version != 0;
+    }
+
+    // Created only from a verified native speaker callback after the existing
+    // audibility probe classifies that concrete AI speaker as hostile.
+    internal sealed class EnemyConversationMemory
+    {
+        public const int Capacity = 4;
+        private sealed class Slot
+        {
+            public string Npc;
+            public int Version;
+            public float HeardAt = -1000f;
+        }
+        private readonly Slot[] _slots = { new Slot(), new Slot(), new Slot(), new Slot() };
+        private int _round, _version;
+
+        public EnemyConversationDecision Hear(string npc, int round, float now, bool realVoice,
+            bool audible, bool hostileNpc, bool conversational)
+        {
+            if (round <= 0 || string.IsNullOrEmpty(npc) || !realVoice || !audible || !hostileNpc || !conversational)
+                return default;
+            if (round != _round) BeginRound(round);
+            for (int i = 0; i < Capacity; i++)
+                if (_slots[i].Npc == npc) return default;
+
+            int selected = -1;
+            for (int i = 0; i < Capacity; i++)
+                if (_slots[i].Npc == null) { selected = i; break; }
+            if (selected < 0) return default; // preserve per-NPC raid deduplication when bounded storage is full
+            Slot slot = _slots[selected];
+            slot.Npc = npc;
+            slot.HeardAt = now;
+            slot.Version = ++_version;
+            if (slot.Version == 0) slot.Version = ++_version;
+            return new EnemyConversationDecision { Npc = npc, Round = round, Version = slot.Version, HeardAt = now };
+        }
+
+        public bool Valid(EnemyConversationDecision decision, float now)
+        {
+            if (!decision.Exists || decision.Round != _round || now - decision.HeardAt > 5f) return false;
+            for (int i = 0; i < Capacity; i++)
+                if (_slots[i].Npc == decision.Npc) return _slots[i].Version == decision.Version;
+            return false;
+        }
+
+        public void BeginRound(int round)
+        {
+            _round = round;
+            for (int i = 0; i < Capacity; i++)
+            {
+                _slots[i].Npc = null;
+                _slots[i].Version = 0;
+                _slots[i].HeardAt = -1000f;
+            }
+        }
+
+        public void Clear() => BeginRound(0);
+    }
+}

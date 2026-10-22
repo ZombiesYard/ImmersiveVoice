@@ -27,6 +27,8 @@ namespace ImmersiveVoice
             public float HeardAt, End, Expires, SampleAt, CoverUntil, HitAt;
             public string Attacker;
             public bool Open, Directed;
+            public bool ConversationChecked;
+            public EnemyConversationDecision Conversation;
             public string LastReason;
             public Vector3 Position;
             public float FollowSince = -1, ApproachSince = -1, AdvanceSince = -1, RetreatSince = -1, HoldSince = -1;
@@ -34,7 +36,8 @@ namespace ImmersiveVoice
             public readonly NpcTurnMemory Turns = new NpcTurnMemory();
             public void Bind(Player player, float now)
             {
-                Player = player; Open = false; Directed = false; LastReason = null; Attacker = null; CoverUntil = HitAt = -1000;
+                Player = player; Open = false; Directed = false; ConversationChecked = false; Conversation = default;
+                LastReason = null; Attacker = null; CoverUntil = HitAt = -1000;
                 HeardAt = SampleAt = now; Position = player.Transform.position; Actions = default;
                 FollowSince = ApproachSince = AdvanceSince = RetreatSince = HoldSince = -1;
                 Turns.Clear();
@@ -48,6 +51,7 @@ namespace ImmersiveVoice
         private readonly Func<string, float, bool> _knownHostile;
         private readonly Action<string> _trace;
         private readonly NpcReplyMemory _memory = new NpcReplyMemory();
+        private readonly EnemyConversationMemory _enemyConversation = new EnemyConversationMemory();
         private readonly System.Random _random = new System.Random();
         private Peer _target;
         private NpcResponse _response;
@@ -73,7 +77,14 @@ namespace ImmersiveVoice
             _local = local; _fika = fika; _knownHostile = knownHostile; _trace = trace;
             for (int i = 0; i < _peers.Length; i++) { _peers[i] = new Peer(); _probes[i] = new Probe(); }
         }
-        public void Active(bool active) { if (!active) Pause(); else _active = !_faulted; }
+        public void Active(bool active)
+        {
+            if (!active)
+            {
+                if (_active || Pending) Pause();
+            }
+            else _active = !_faulted;
+        }
         private bool Present(Player player) => player != null && player != _local && !player.IsYourPlayer
             && player.GameWorld == _local.GameWorld && player.gameObject.activeInHierarchy && player.HealthController != null;
         private bool Available(Player player) => Present(player) && player.HealthController.IsAlive && !_fika.Downed(player);
@@ -230,11 +241,14 @@ namespace ImmersiveVoice
                 NpcResponse response = Select(peer, now, context);
                 if (response == NpcResponse.None)
                 {
-                    string rejected = context.Survival ? "SurvivalContext" : peer.Line == NpcLine.Other ? "UnmappedNpcPhrase"
+                    bool consumedConversation = peer.ConversationChecked
+                        && NpcDialogueRules.EnemyConversation(peer.Line, Relation(peer.Player, now), context.Survival);
+                    string rejected = consumedConversation ? "EnemyConversationConsumed"
+                        : context.Survival ? "SurvivalContext" : peer.Line == NpcLine.Other ? "UnmappedNpcPhrase"
                         : peer.Line == NpcLine.Pain || peer.Line == NpcLine.Death || peer.Line == NpcLine.Acknowledgement ? "NoReplyToThisMeaning"
                         : !peer.Directed ? "NotAddressedNearby" : "AwaitMatchingContextOrAction";
                     if (peer.LastReason != rejected) { Decision(peer, "Waiting", rejected, tracing); peer.LastReason = rejected; }
-                    if (rejected == "UnmappedNpcPhrase" || rejected == "NoReplyToThisMeaning") peer.Open = false;
+                    if (consumedConversation || rejected == "UnmappedNpcPhrase" || rejected == "NoReplyToThisMeaning") peer.Open = false;
                     continue;
                 }
                 if (!peer.Turns.Available(now))
@@ -246,6 +260,23 @@ namespace ImmersiveVoice
             if (tracing && _capacityDrops > 0 && now >= _capacityTraceAt)
             { _trace($"Event=NpcCapacity Dropped={_capacityDrops} Capacity={NpcDialogueRules.Capacity}"); _capacityDrops = 0; _capacityTraceAt = now + 30f; }
             if (best == null || Pending && NpcDialogueRules.Priority(selected) <= Priority) return false;
+            if (selected == NpcResponse.EnemyConversation && !best.Conversation.Exists)
+            {
+                best.ConversationChecked = true;
+                // Anchor validity at the end of the heard line so a long native
+                // clip remains eligible through its normal response delay.
+                best.Conversation = _enemyConversation.Hear(best.Player.ProfileId, 1, best.End,
+                    true, true, true, true);
+                // One NPC gets one exact opportunity. Capacity or duplicate
+                // memory must remain silent instead of degrading to a generic
+                // retort on a later tick.
+                if (!best.Conversation.Exists)
+                {
+                    best.Open = false;
+                    Decision(best, "Suppressed", "EnemyConversationConsumed", tracing);
+                    return false;
+                }
+            }
             bool replace = Pending;
             if (replace) Cancel("HigherPriorityNpcSpeech", tracing, replace: true);
             string blocked = _memory.Begin(now, best.End, Distance(best.Player), (float)_random.NextDouble());
@@ -264,7 +295,14 @@ namespace ImmersiveVoice
             Vector3 delta = _local.Transform.position - peer.Player.Transform.position;
             float distance = delta.magnitude;
             bool directed = peer.Directed && distance <= 15f && Math.Abs(delta.y) < 3f;
-            return NpcDialogueRules.Select(peer.Line, Relation(peer.Player, now), context.Combat == CombatPhase.Engaged,
+            NpcRelation relation = Relation(peer.Player, now);
+            if (NpcDialogueRules.EnemyConversation(peer.Line, relation, context.Survival))
+            {
+                if (!peer.ConversationChecked) return NpcResponse.EnemyConversation;
+                return peer == _target && Pending && _enemyConversation.Valid(peer.Conversation, now)
+                    ? NpcResponse.EnemyConversation : NpcResponse.None;
+            }
+            return NpcDialogueRules.Select(peer.Line, relation, context.Combat == CombatPhase.Engaged,
                 context.Survival, directed, distance <= 6f, peer.Actions);
         }
         private static bool Stable(ref float since, bool fits, float now)
@@ -333,6 +371,7 @@ namespace ImmersiveVoice
         }
         public bool Valid(int version, float now, BarkContext context) => _active && _memory.Valid(version, now)
             && _target != null && Available(_target.Player) && _fika.IsAI(_target.Player) && Distance(_target.Player) <= NpcReplyRules.Range
+            && (_response != NpcResponse.EnemyConversation || _enemyConversation.Valid(_target.Conversation, now))
             && Select(_target, now, context) == _response;
         public string Waiting(float now) => _memory.Waiting(now);
         public void Spoken(float now, float cooldown)
@@ -353,11 +392,13 @@ namespace ImmersiveVoice
             foreach (Peer peer in _peers) { peer.Open = false; peer.Actions = default; }
         }
         internal static EPhraseTrigger Output(NpcResponse response)
-            => response == NpcResponse.Retort ? EPhraseTrigger.OnFight : response == NpcResponse.Noise ? EPhraseTrigger.NoisePhrase
+            => response == NpcResponse.EnemyConversation ? EPhraseTrigger.OnEnemyConversation
+                : response == NpcResponse.Retort ? EPhraseTrigger.OnFight : response == NpcResponse.Noise ? EPhraseTrigger.NoisePhrase
                 : response == NpcResponse.Mutter ? EPhraseTrigger.OnMutter : response == NpcResponse.Following ? EPhraseTrigger.Going
                 : response == NpcResponse.Covering ? EPhraseTrigger.Covering : EPhraseTrigger.Roger;
         private static NpcResponse PeerResponse(EPhraseTrigger phrase)
-            => phrase == EPhraseTrigger.OnFight ? NpcResponse.Retort : phrase == EPhraseTrigger.NoisePhrase ? NpcResponse.Noise
+            => phrase == EPhraseTrigger.OnEnemyConversation ? NpcResponse.EnemyConversation
+                : phrase == EPhraseTrigger.OnFight ? NpcResponse.Retort : phrase == EPhraseTrigger.NoisePhrase ? NpcResponse.Noise
                 : phrase == EPhraseTrigger.OnMutter ? NpcResponse.Mutter : phrase == EPhraseTrigger.Going ? NpcResponse.Following
                 : phrase == EPhraseTrigger.Covering ? NpcResponse.Covering : phrase == EPhraseTrigger.Roger ? NpcResponse.Acknowledge : NpcResponse.None;
         internal static NpcLine Meaning(EPhraseTrigger phrase)

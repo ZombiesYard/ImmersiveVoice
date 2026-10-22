@@ -10,7 +10,9 @@ namespace ImmersiveVoice
         RepeatedContact, Bleeding, ArmFracture, LegFracture, MedicalRequest, TeamFollowing, TeamCovering, TeamAdvance, TeamRetreat,
         TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, TeamOnPosition, TeamGoodWork, NpcRetort, NpcNoise, NpcMutter, NpcAcknowledge, NpcFollowing, NpcCovering, TeamReady,
         EnemyHitReport, ScavReport, ScavDownReport, KnifeKillReport, EnemyDirection,
-        TeamPush, TeamSuppress, TeamSpreadOut, TeamGetInCover
+        TeamPush, TeamSuppress, TeamSpreadOut, TeamGetInCover,
+        SniperThreat, TeamHoldFire, TeamSilence, SearchLoot, GeneralHelp, TreatmentReady,
+        NpcEnemyConversation
     }
 
     internal enum VoiceMode { Solo, FikaHost, FikaClient }
@@ -114,12 +116,16 @@ namespace ImmersiveVoice
                 || intent == VoiceIntent.ScavReport || intent == VoiceIntent.ScavDownReport
                 || intent == VoiceIntent.KnifeKillReport || intent == VoiceIntent.EnemyDirection
                 || intent == VoiceIntent.TeamPush || intent == VoiceIntent.TeamSuppress
-                || intent == VoiceIntent.TeamSpreadOut || intent == VoiceIntent.TeamGetInCover;
+                || intent == VoiceIntent.TeamSpreadOut || intent == VoiceIntent.TeamGetInCover
+                || intent == VoiceIntent.SniperThreat || intent == VoiceIntent.TeamHoldFire
+                || intent == VoiceIntent.TeamGoodWork || intent == VoiceIntent.GeneralHelp;
 
         private static string RejectionReasonCore(VoiceIntent intent, BarkContext context, int damageVersion, bool pending)
         {
             if (intent == VoiceIntent.Silent) return "SilentIntent";
-            if (TacticalCombatReport(intent) && context.DamageVersion != damageVersion)
+            if (TacticalCombatReport(intent) && intent != VoiceIntent.TeamHoldFire
+                && intent != VoiceIntent.SniperThreat
+                && intent != VoiceIntent.GeneralHelp && context.DamageVersion != damageVersion)
                 return "DamageAfterRequest";
             bool emotional = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.CombatBark || NpcExchange(intent);
             if (emotional || intent == VoiceIntent.KillConfirm || TacticalCombatReport(intent))
@@ -137,13 +143,16 @@ namespace ImmersiveVoice
             }
             if ((intent == VoiceIntent.TacticalEnemyDown || intent == VoiceIntent.EnemyDirection
                 || intent == VoiceIntent.TeamPush || intent == VoiceIntent.TeamSuppress
-                || intent == VoiceIntent.TeamSpreadOut || intent == VoiceIntent.TeamGetInCover)
+                || intent == VoiceIntent.TeamSpreadOut || intent == VoiceIntent.TeamGetInCover
+                || intent == VoiceIntent.TeamHoldFire || intent == VoiceIntent.TeamSilence
+                || intent == VoiceIntent.TeamGoodWork)
                 && !context.TeamReport) return "TeammateNoLongerNearby";
             return null;
         }
 
         public static bool NpcExchange(VoiceIntent intent) => intent == VoiceIntent.NpcRetort || intent == VoiceIntent.NpcNoise
-            || intent == VoiceIntent.NpcMutter || intent == VoiceIntent.NpcAcknowledge || intent == VoiceIntent.NpcFollowing || intent == VoiceIntent.NpcCovering;
+            || intent == VoiceIntent.NpcMutter || intent == VoiceIntent.NpcAcknowledge || intent == VoiceIntent.NpcFollowing
+            || intent == VoiceIntent.NpcCovering || intent == VoiceIntent.NpcEnemyConversation;
 
         public static VoiceIntent HistoryKey(VoiceIntent intent)
             => intent == VoiceIntent.KillTaunt || intent == VoiceIntent.NpcRetort ? VoiceIntent.CombatBark

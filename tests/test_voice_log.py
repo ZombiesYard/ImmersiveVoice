@@ -13,6 +13,13 @@ spec.loader.exec_module(module)
 
 
 class VoiceLogTests(unittest.TestCase):
+    def test_new_action_and_tactical_fields_remain_in_request_timeline(self):
+        report = module.summarize([
+            "[AutoVoice] Session=a Time=4 Request=9 Event=ActionSpeech Intent=SearchLoot Phrase=OnLoot Stage=Silence ActionVersion=12 Decision=Suppressed Reason=NoMatchingBank",
+        ], timeline=True)
+        history = report["sessions"]["a"]["requests"]["9"]["history"][0]
+        self.assertEqual((history["Stage"], history["ActionVersion"]), ("Silence", "12"))
+
     def test_ready_evidence_is_separate_from_playback(self):
         report = module.summarize([
             "[AutoVoice] Session=a Event=SquadReadyEvidence Reason=HeardCoverConfirmed Caller=1 Epoch=10 Sequence=5 CoverActor=2",

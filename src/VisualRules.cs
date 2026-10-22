@@ -13,6 +13,7 @@ namespace ImmersiveVoice
             || intent == VoiceIntent.TeamAdvance || intent == VoiceIntent.TeamRetreat || intent == VoiceIntent.TeamLead
             || intent == VoiceIntent.TeamOnPosition || intent == VoiceIntent.TeamGoodWork
             || intent == VoiceIntent.TeamNeedCover || intent == VoiceIntent.TeamRegroup || intent == VoiceIntent.TeamHold
+            || intent == VoiceIntent.TeamSilence
             || SemanticVoice.TacticalCombatReport(intent);
     }
 }

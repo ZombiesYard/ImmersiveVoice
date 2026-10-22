@@ -4,7 +4,7 @@ namespace ImmersiveVoice
 {
     internal enum NpcRelation { Unknown, Neutral, Ally, Hostile }
     internal enum NpcLine { Other, Taunt, Combat, Mutter, Reload, Help, Follow, Cover, Advance, Retreat, Hold, Regroup, Cooperation, Warning, Pain, Death, Breath, Acknowledgement }
-    internal enum NpcResponse { None, Retort, Noise, Mutter, Acknowledge, Following, Covering }
+    internal enum NpcResponse { None, Retort, Noise, Mutter, Acknowledge, Following, Covering, EnemyConversation }
 
     internal struct NpcActions
     {
@@ -50,13 +50,18 @@ namespace ImmersiveVoice
                 default: return NpcResponse.None;
             }
         }
+        public static bool EnemyConversation(NpcLine line, NpcRelation relation, bool survival)
+            => !survival && relation == NpcRelation.Hostile
+                && (line == NpcLine.Taunt || line == NpcLine.Combat || line == NpcLine.Mutter);
         public static VoiceIntent Intent(NpcResponse response)
-            => response == NpcResponse.Retort ? VoiceIntent.NpcRetort
+            => response == NpcResponse.EnemyConversation ? VoiceIntent.NpcEnemyConversation
+                : response == NpcResponse.Retort ? VoiceIntent.NpcRetort
                 : response == NpcResponse.Noise ? VoiceIntent.NpcNoise
                 : response == NpcResponse.Mutter ? VoiceIntent.NpcMutter
                 : response == NpcResponse.Following ? VoiceIntent.NpcFollowing
                 : response == NpcResponse.Covering ? VoiceIntent.NpcCovering : VoiceIntent.NpcAcknowledge;
-        public static int Priority(NpcResponse response) => response == NpcResponse.Noise ? 50
+        public static int Priority(NpcResponse response) => response == NpcResponse.EnemyConversation ? 60
+            : response == NpcResponse.Noise ? 50
             : response == NpcResponse.Covering ? 58 : response == NpcResponse.Mutter ? 20 : 40;
         public static bool PeerAnswer(NpcResponse response, NpcResponse heard)
             => response != NpcResponse.None && response == heard;

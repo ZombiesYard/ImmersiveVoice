@@ -4,7 +4,9 @@ F12菜单中的“保存排查日志”默认开启。日志写入客户端目�
 
 日志区分事件候选、概率判断、等待、取消、发声尝试及Speaker确认播放。`Request`连接同一次事件；`Time`只属于本客户端时钟，不能直接用两台电脑的数值相减测网络延迟。
 
-2.16.0新增`CombatReport`、`Direction`和`TeamReportVersion=候选/当前`。`TeammateReportedFirst`表示短延迟期间已经实际听见队友先报，因此取消本机候选；`DirectionChanged`、`CombatReportExpired`和`SquadDangerExpired`表示原证据已经过期或变化。日志仍不记录目标身份或坐标。
+2.16.0新增`CombatReport`、`Direction`和`TeamReportVersion=候选/当前`。2.17.0新增`Stage`、`ActionVersion`和`SearchAction`，用于区分共同潜行、一次性搜索/求助/治疗收尾及真实搜索边缘。`TeammateReportedFirst`表示短延迟期间已经实际听见队友先报，因此取消本机候选；`DirectionChanged`、`CombatReportExpired`、`ReportActorUnavailable`、`StealthApproachEnded`和`SquadDangerExpired`表示原证据已经过期、变化或队友槽位已换代。日志仍不记录目标身份或坐标。
+
+`EnemyConversationConsumed`表示该NPC每局一次的精确OnEnemyConversation机会已经消费；当前声线缺音效时仍显示`NoMatchingBank`，之后不会退回普通回骂或其他台词。
 
 常见原因：
 

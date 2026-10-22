@@ -7,6 +7,12 @@ using UnityEngine;
 
 namespace ImmersiveVoice
 {
+    internal struct SquadActorEvidence
+    {
+        public int Actor, Slot, Version;
+        public bool Exists => Actor > 0 && Slot >= 0 && Version != 0;
+    }
+
     // Unity/Fika adapter. A local player owns at most three peers and one pending
     // expression. No remote controller is told to speak; no position packets.
     internal sealed class SquadObserver : IDisposable
@@ -15,6 +21,7 @@ namespace ImmersiveVoice
         {
             public Player Player;
             public string Id;
+            public int Version;
             public BaseSpeaker Speaker;
             public float SeenAt = -1000f;
             public float ClearAt = -1000f, SpeakingUntil, SpeechRange;
@@ -36,6 +43,7 @@ namespace ImmersiveVoice
         private readonly VoiceJournal _journal;
         private readonly Peer[] _peers = { new Peer(), new Peer(), new Peer() };
         private readonly SquadMemory _memory = new SquadMemory();
+        private readonly StealthApproachMemory _stealth = new StealthApproachMemory();
         private readonly SquadReadyMemory _ready = new SquadReadyMemory();
         private Player _coverPeer;
         private string _readyReason;
@@ -129,8 +137,11 @@ namespace ImmersiveVoice
             }
             if (empty < 0) return;
             Peer p = _peers[empty];
+            p.Version++;
+            if (p.Version == 0) p.Version++;
             p.Player = player; p.Id = player.ProfileId; p.WaitingMetadata = false; p.Requested = p.Granted = default;
             _memory.Bind(empty);
+            _stealth.ResetPeer(empty);
             _loss.Bind(empty);
             BindSpeaker(p);
         }
@@ -146,6 +157,8 @@ namespace ImmersiveVoice
         {
             Peer p = _peers[slot];
             if (p.Speaker != null) p.Speaker.OnPhraseTold -= OnPhrase;
+            p.Version++;
+            if (p.Version == 0) p.Version++;
             p.Player = null; p.Speaker = null; p.SeenAt = p.ClearAt = -1000f;
             p.InView = false; p.SpeakingUntil = 0f;
             p.Awareness.Clear();
@@ -153,6 +166,7 @@ namespace ImmersiveVoice
             // later local corpse observation can identify them. Departure alone says nothing.
             if (forget) { p.Id = null; _loss.Bind(slot); }
             _memory.Unbind(slot);
+            _stealth.ResetPeer(slot);
         }
         private void RefreshRoster()
         {
@@ -212,6 +226,8 @@ namespace ImmersiveVoice
                 {
                     _samples++;
                     SquadPoint self = Point(_local.Transform.position);
+                    bool selfStealth = StealthState(_local);
+                    bool combat = context.Combat != CombatPhase.Calm;
                     for (int i = 0; i < SquadMemory.Capacity; i++)
                     {
                         Peer p = _peers[i];
@@ -223,11 +239,13 @@ namespace ImmersiveVoice
                         {
                             SquadPoint other = Point(p.Player.Transform.position);
                             _memory.Sample(i, now, self, other, true);
+                            _stealth.Sample(i, now, self, other, _fika.NetworkId(p.Player) > 0,
+                                Math.Abs(self.Y - other.Y) <= 2.5f, selfStealth, StealthState(p.Player), combat);
                             p.Awareness.ObserveReport(now, self, other);
                             if (seen) _loss.Alive(i);
                         }
-                        else if (Available(p)) _memory.Obscured(i, now, self);
-                        else { _memory.Sample(i, now, self, default, false); p.Awareness.Clear(); }
+                        else if (Available(p)) { _memory.Obscured(i, now, self); _stealth.ResetPeer(i); }
+                        else { _memory.Sample(i, now, self, default, false); _stealth.ResetPeer(i); p.Awareness.Clear(); }
                         if (Tracing)
                         {
                             string perception = seen ? "Visible" : heard ? "Audible" : companion ? "NearbyKnown"
@@ -257,6 +275,9 @@ namespace ImmersiveVoice
             }
         }
         private static SquadPoint Point(Vector3 p) => new SquadPoint(p.x, p.y, p.z);
+        private static bool StealthState(Player player) => player != null && (player.IsInPronePose
+            || player.MovementContext != null && (player.MovementContext.PoseLevel < 0.8f
+                || player.MovementContext.ClampedSpeed < 0.35f));
         private void Silence(float now, string reason)
         {
             if (!Tracing || reason == _silence || now < _traceAt) return;
@@ -335,6 +356,24 @@ namespace ImmersiveVoice
                     return _memory.PeerShot(i, now, visibleTarget);
             return false;
         }
+        public SquadActorEvidence Actor(IPlayer actor, float now)
+        {
+            if (!_active || !Enabled || actor == null || string.IsNullOrEmpty(actor.ProfileId)) return default;
+            for (int i = 0; i < SquadMemory.Capacity; i++)
+                if (_peers[i].Id == actor.ProfileId)
+                {
+                    int network = PerceivedActor(i, now);
+                    return network > 0 ? new SquadActorEvidence
+                        { Actor = network, Slot = i, Version = _peers[i].Version } : default;
+                }
+            return default;
+        }
+        public bool ValidActor(int actor, int slot, int version, float now)
+        {
+            return actor > 0 && version != 0 && (uint)slot < SquadMemory.Capacity
+                && _active && Enabled && _peers[slot].Version == version
+                && PerceivedActor(slot, now) == actor;
+        }
         public bool Danger(float now, string visibleThreat)
             => _active && Enabled && _memory.Danger(now, visibleThreat);
         public void Shot(float now, VisibleContact target)
@@ -342,12 +381,45 @@ namespace ImmersiveVoice
             if (!_active || !Enabled) return;
             _memory.Shot(now, target != null && target.Alive && !target.Ally ? target.Id : null); _shots++;
         }
-        public void TargetDown(string id) { if (_active) _memory.TargetDown(id); }
+        public void TargetDown(string id)
+        {
+            if (!_active) return;
+            _memory.TargetDown(id);
+            _stealth.Lost(id);
+        }
+        public void ThreatLost(string id)
+        {
+            if (_active) _stealth.Lost(id);
+        }
         public void Threat(float now, VisibleContact seen, bool focused)
         {
             if (_active && Enabled && seen?.Player != null && seen.Alive && !seen.Ally)
+            {
                 _memory.Threat(seen.Id, Point(seen.Player.Transform.position), now, focused);
+                _stealth.Threat(seen.Id, Point(seen.Player.Transform.position), true, focused, now);
+            }
         }
+        public StealthApproachDecision Stealth(float now)
+        {
+            if (!_active || !Enabled || !_settings.SquadCoordination.Value) return default;
+            StealthApproachDecision decision = _stealth.Select(now);
+            if (!decision.Exists) return default;
+            decision.Actor = PerceivedActor(decision.Peer, now);
+            return decision.Actor > 0 ? decision : default;
+        }
+        public bool StealthValid(StealthApproachDecision decision, float now)
+            => _active && Enabled && _settings.SquadCoordination.Value
+                && _stealth.Valid(decision, now) && ValidActor(decision, now);
+        private int PerceivedActor(int slot, float now)
+        {
+            if ((uint)slot >= SquadMemory.Capacity) return 0;
+            Peer peer = _peers[slot];
+            if (!Available(peer) || !Perceived(peer, now)) return 0;
+            int actor = _fika.NetworkId(peer.Player);
+            return actor > 0 ? actor : 0;
+        }
+        private bool ValidActor(StealthApproachDecision decision, float now)
+            => decision.Actor > 0 && PerceivedActor(decision.Peer, now) == decision.Actor;
         private void OnPhrase(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, BaseSpeaker speaker)
         {
             if (!_active || !Enabled || clip?.Clip == null || clip.Length <= 0f) return;
@@ -500,6 +572,7 @@ namespace ImmersiveVoice
             {
                 _reportVersion++;
                 _memory.Suspend(now, manual);
+                _stealth.Clear();
                 _loss.Pause();
                 for (int i = 0; i < SquadMemory.Capacity; i++)
                 {

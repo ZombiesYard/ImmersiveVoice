@@ -1,11 +1,11 @@
 标题：
-[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.16.0｜战斗通报与小队火力配合｜GPL开源
+[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.17.0｜玩家声线扩展第二批｜GPL开源
 
 简介：
 换弹时提醒一句，发现敌人时发出通报，跟上队友、实际提供火力掩护时自然接话——Immersive Voice让角色根据正在发生的事情，使用自己的现有声线自动表达。
 
 Mod名称：Immersive Voice / 沉浸式角色语音
-版本：2.16.0（战斗通报测试版）
+版本：2.17.0（玩家声线扩展第二批）
 作者：ZombiesYard
 类型：BepInEx客户端插件
 支持环境：SPT 4.1.6 / EFT 0.16.9.40743
@@ -37,7 +37,7 @@ F12菜单支持简体中文和English。默认显示常用选项，高级设置�
 
 【安装方法】
 
-退出游戏，将附件ImmersiveVoice-2.15.0.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
+退出游戏，将附件ImmersiveVoice-2.17.0.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
 
 最终文件路径：
 BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
@@ -50,7 +50,7 @@ BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
 
 【Fika使用】
 
-主机及所有客户端统一安装2.15.0，不混用旧版或未安装的客户端。每个客户端只控制自己的角色，声音使用Fika原生同步；主机用小型事件消息协调一人接话。真实听到、行为吻合且具备当前音效才申请。未收到主机能力确认时，协调回应保持静默；自定义声线仍需双方具备相应资源。
+主机及所有客户端统一安装2.17.0，不混用旧版或未安装的客户端。每个客户端只控制自己的角色，声音使用Fika原生同步；主机用小型事件消息协调一人接话。真实听到、行为吻合且具备当前音效才申请。未收到主机能力确认时，协调回应保持静默；自定义声线仍需双方具备相应资源。
 
 【使用提示】
 
@@ -61,15 +61,17 @@ BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
 - 这些语音用于增强沉浸感，不能代替玩家之间的实际交流。
 - 已做构建、逻辑与接口验证；四人完整实战和不同Mod组合仍需更多反馈。不承诺零性能开销。
 
-【2.15.0更新】
+【2.17.0更新】
 
-新增Ready收尾：本人发出换弹、空枪或求掩护，实际听见对应队友Covering，同一武器完成装填或排障后再说准备好了。每次动作最多一次，缺少该声线的Ready就略过；原版Scav自然省略。取消装填且无实际结果、切枪、新伤害、治疗、失联和超时都不补喊。四人通过绑定具体请求、回复者和音频的回执防串话；没有新增射线或全场扫描。保留上一版的Going、Covering、OnPosition、GoodWork与主机仲裁。已通过本地规则、接口及四客户端模拟，实际听感和四人实战待验证。
+新增具体解围后的GoodWork、真实友伤HoldFire、可靠狙击威胁SniperPhrase、共同潜行转折Silence、真实搜索OnLoot、必要时NeedHelp、完整治疗后的Ready，以及敌对NPC交谈的OnEnemyConversation。每项都要求实际事件、当前感知和短有效期；普通开背包、后台击杀、未知攻击者或仅仅安静几秒不会触发。缺少当前声线的精确音效就静默，不改喊别的含义。
+
+最多4人仍只维护3名远端队友，运动采样4Hz；固定4个威胁和4个敌对NPC交谈槽。没有新增队友射线、全场扫描、持续位置广播或音频传输。已通过规则、已安装程序集接口和四客户端纯模型验证；实际听感及四人整局性能待游戏测试。
 
 【下载与源码】
 
-安装包：本帖附件ImmersiveVoice-2.15.0.zip
+安装包：本帖附件ImmersiveVoice-2.17.0.zip
 GitHub：https://github.com/ZombiesYard/ImmersiveVoice
-版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.15.0
+版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.17.0
 源码以GPL-3.0-only发布。转载或分发修改版请保留声明，并遵守许可证的源码提供要求。游戏及第三方素材不在本项目授权范围内。
 
 【反馈】
