@@ -17,12 +17,14 @@ namespace ImmersiveVoice
         private PropertyInfo _downed;
         private Func<Player, bool> _isDowned;
         private Func<Player, bool> _observedAI;
+        private Func<Player, int> _netId;
+        public Assembly Assembly { get; private set; }
         public MethodInfo Extract { get; private set; }
 
         public FikaBridge()
         {
             if (!Chainloader.PluginInfos.TryGetValue("com.fika.core", out var fika)) return;
-            Assembly assembly = fika.Instance.GetType().Assembly;
+            Assembly assembly = Assembly = fika.Instance.GetType().Assembly;
             Type backend = assembly.GetType("Fika.Core.Main.Utils.FikaBackendUtils", true);
             MethodInfo getter = backend.GetProperty("IsHeadless")?.GetGetMethod();
             if (getter == null) throw new MissingMemberException(backend.FullName, "IsHeadless");
@@ -42,6 +44,7 @@ namespace ImmersiveVoice
             // Read Fika's replicated identity once per check, without reflection
             // boxing or a mandatory reference to the optional assembly.
             FieldInfo observedAI = player.GetField("IsObservedAI");
+            _netId = Expression.Lambda<Func<Player, int>>(Expression.Field(Expression.Convert(argument, player), "NetId"), argument).Compile();
             if (observedAI == null || observedAI.FieldType != typeof(bool))
                 throw new MissingMemberException(player.FullName, "IsObservedAI");
             _observedAI = Expression.Lambda<Func<Player, bool>>(Expression.AndAlso(
@@ -64,6 +67,8 @@ namespace ImmersiveVoice
 
         public bool IsAI(Player player) => player != null
             && (player.IsAI || (_observedAI != null && _observedAI(player)));
+
+        public int NetworkId(Player player) => _netId != null && _downed.DeclaringType.IsInstanceOfType(player) ? _netId(player) : 0;
 
         public VoiceMode Mode(Player player) => _downed == null || !_downed.DeclaringType.IsInstanceOfType(player)
             ? VoiceMode.Solo : (_isServer() ? VoiceMode.FikaHost : VoiceMode.FikaClient);

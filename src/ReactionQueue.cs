@@ -26,6 +26,10 @@ namespace ImmersiveVoice
 
     internal sealed class ReactionQueue
     {
+        public static bool ExchangeInvalidates(ReactionKind kind, VoiceIntent intent, bool changed)
+            => changed && (kind == ReactionKind.EnemyDown && intent != VoiceIntent.TacticalEnemyDown
+                || kind == ReactionKind.Recovery || kind == ReactionKind.AfterTreatment);
+
         private readonly List<Reaction> _pending = new List<Reaction>();
         private readonly Action<Reaction, string> _dropped;
         public ReactionQueue(Action<Reaction, string> dropped = null) { _dropped = dropped; }

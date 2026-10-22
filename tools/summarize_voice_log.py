@@ -22,7 +22,7 @@ def number(value):
 
 
 REQUEST_FIELDS = ("Time", "Seq", "Event", "Decision", "Reason", "Intent", "Phrase", "Source", "ClipId", "Duration",
-                  "SquadAction", "Peer", "PeerVersion", "Episode", "Reply", "Combat", "Health", "Priority", "Group", "Remaining",
+                  "SquadAction", "Peer", "PeerVersion", "Episode", "Reply", "DialogueSequence", "Combat", "Health", "Priority", "Group", "Remaining",
                   "ChancePercent", "RollPercent", "Passed", "HealthEpisode", "HealthState", "Confirmed", "NativeReached",
                   "Tags", "FemaleGateYielded", "BreathYielded", "CurrentPhrase", "QueuedPhrase",
                   "AcuteHealth", "HealthEscalation", "Teammate", "RecentTeammate", "RecentHit", "DamageVersion", "NpcEpisode", "NativeException")
@@ -43,6 +43,7 @@ def diagnostics(sessions, fields, timeline):
         "decisions": collections.Counter(), "suppression_reasons": collections.Counter(),
         "waiting_reasons": collections.Counter(), "pause_reasons": collections.Counter(),
         "squad_silence_reasons": collections.Counter(), "squad_perceptions": collections.Counter(),
+        "squad_dialogue_decisions": collections.Counter(), "squad_dialogue_network": {},
         "visual_evidence": collections.defaultdict(collections.Counter), "settings": {}, "squad_performance": {}, "requests": {},
         "playback_results": collections.Counter(), "playback_compatibility": collections.Counter(),
         "treatment_actions": collections.Counter(), "squad_hit_rejections": collections.Counter(),
@@ -80,6 +81,11 @@ def diagnostics(sessions, fields, timeline):
         session["visual_evidence"][event][reason or "Unknown"] += 1
     elif event == "SquadPerception":
         session["squad_perceptions"][fields.get("State", "Unknown")] += 1
+    elif event == "SquadDialogue":
+        session["squad_dialogue_decisions"][reason or "Unknown"] += 1
+    elif event == "SquadDialogueSummary":
+        session["squad_dialogue_network"] = {key: number(fields.get(key)) for key in ("Sent", "Received", "Grants")}
+        session["squad_dialogue_network"]["Ready"] = fields.get("Ready") == "True"
     elif event == "PlaybackResult":
         session["playback_results"][reason or "Unknown"] += 1
         for key in ("FemaleGateYielded", "BreathYielded"):

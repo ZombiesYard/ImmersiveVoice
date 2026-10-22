@@ -189,4 +189,5 @@ Check(unexpectedPropagated, "unrelated failures are not silently treated as reco
 SpeechObservation.Played -= counter;
 SpeechObservation.Played -= exactListener;
 harmony.UnpatchSelf();
-Console.WriteLine("SUCCESS: " + count + " real-Harmony checks with fixtures; no Unity audio or network test.");
+DialogueNetworkScenarios.Run(Check, new FikaBridge());
+Console.WriteLine("SUCCESS: " + count + " Harmony and four-client metadata fixture checks; no Unity audio or live UDP test.");

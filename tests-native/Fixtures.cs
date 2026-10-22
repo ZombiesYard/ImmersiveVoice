@@ -10,11 +10,15 @@ public class TagBank { public int Importance; }
 public class BetterSource { }
 namespace EFT
 {
+    public class TestHealth { public bool IsAlive = true; }
     public class Player
     {
         protected BetterSource _speechSource = new BetterSource();
         public int PlayCount;
         public bool IsAI;
+        public object GameWorld;
+        public string GroupId = "group";
+        public TestHealth HealthController = new TestHealth();
         public bool ThrowOnAudio;
         public bool AudioEnabled = true;
         public float LastStart;
@@ -68,7 +72,8 @@ namespace BepInEx.Logging
     public class ManualLogSource
     {
         public int Warnings;
-        public void LogWarning(object message) { Warnings++; }
+        public void LogWarning(object message) { Warnings++; System.Console.WriteLine(message); }
+        public void LogInfo(object message) { }
     }
 }
 namespace FemalePMCSoundPatch
@@ -88,6 +93,7 @@ namespace Fika.Core.Main.Players
     public class FikaPlayer : EFT.Player
     {
         public bool IsObservedAI;
+        public int NetId;
         public bool Downed { get; set; }
         [MethodImpl(MethodImplOptions.NoInlining)]
         public override void OnPhraseTold(EPhraseTrigger phrase, TaggedClip clip, TagBank bank, EFT.BaseSpeaker speaker)
@@ -103,6 +109,7 @@ namespace Fika.Core.Main.Players
 
 namespace UnityEngine
 {
+    public static class Time { public static float time; }
     public static class Application { public static bool isBatchMode; }
     public class MissingReferenceException : System.Exception { }
 }

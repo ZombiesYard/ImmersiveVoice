@@ -317,6 +317,7 @@ namespace ImmersiveVoice
             if (phrase == EPhraseTrigger.NeedMedkit) return true;
             // Squad statements require the behaviour evidence held by the director.
             if (phrase == EPhraseTrigger.Going || phrase == EPhraseTrigger.Covering || phrase == EPhraseTrigger.Roger
+                || phrase == EPhraseTrigger.OnPosition || phrase == EPhraseTrigger.GoodWork
                 || phrase == EPhraseTrigger.GoForward || phrase == EPhraseTrigger.GetBack
                 || phrase == EPhraseTrigger.FollowMe || phrase == EPhraseTrigger.CoverMe || phrase == EPhraseTrigger.Regroup
                 || phrase == EPhraseTrigger.HoldPosition || phrase == EPhraseTrigger.OnFriendlyDown) return true;
@@ -390,6 +391,7 @@ namespace ImmersiveVoice
                 _policy.Spoken(Time.time, clip?.Length ?? 0f, _settings.Gap.Value, own,
                     physiological, _settings.ManualPause.Value, cue, breathing: phrase == EPhraseTrigger.OnBreath);
                 _director.Spoke(cue, own);
+                if (!physiological) _director.NativeSpoken(phrase, clip);
                 if (!physiological)
                 {
                     float end = Time.time + (clip?.Length ?? 0f);

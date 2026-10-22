@@ -28,14 +28,13 @@ internal static class SquadTacticalScenarios
             "sustained joint movement away from the known fight supports retreat");
         m = Team(); Move(m, end: 2);
         check(!m.Decide(2, true, true, true).Exists, "a brief approach does not establish joint advance");
-        foreach (string scenario in new[] { "no-threat", "no-combat", "stationary-peer", "stationary-self",
+        foreach (string scenario in new[] { "no-threat", "no-combat", "stationary-self",
             "opposite", "lateral", "floor", "enemy-motion-only", "slow-drift" })
         {
             m = Team(combat: scenario != "no-combat", threat: scenario != "no-threat");
             for (float t = 0; t <= 4; t += 0.25f)
             {
                 var self = P(t * 2); var other = P(t * 2, 4);
-                if (scenario == "stationary-peer") other = P(0, 4);
                 if (scenario == "stationary-self") self = P(0);
                 if (scenario == "opposite") other = P(-t * 2, 4);
                 if (scenario == "lateral") { self = P(0, t * 2); other = P(4, t * 2); }

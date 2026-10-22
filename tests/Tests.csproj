@@ -22,6 +22,8 @@
     <Compile Include="../src/VisualRules.cs" Link="VisualRules.cs" />
     <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />
     <Compile Include="../src/SquadAwareness.cs" Link="SquadAwareness.cs" />
+    <Compile Include="../src/DialoguePacketFactory.cs" Link="DialoguePacketFactory.cs" />
+    <Compile Include="../src/SquadDialogue.cs" Link="SquadDialogue.cs" />
     <Compile Include="../src/SquadMemory.cs" Link="SquadMemory.cs" />
     <Compile Include="../src/SquadInitiatives.cs" Link="SquadInitiatives.cs" />
     <Compile Include="../src/SquadLossMemory.cs" Link="SquadLossMemory.cs" />

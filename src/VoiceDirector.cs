@@ -260,29 +260,15 @@ namespace ImmersiveVoice
             if (!_squad.Enabled) _squad.Pause(now);
             if (decision.Exists)
             {
-                VoiceIntent intent = decision.Reply ? VoiceIntent.Acknowledge
-                    : decision.Action == SquadAction.Following ? VoiceIntent.TeamFollowing
-                    : decision.Action == SquadAction.Covering ? VoiceIntent.TeamCovering
-                    : decision.Action == SquadAction.Advancing ? VoiceIntent.TeamAdvance
-                    : decision.Action == SquadAction.Leading ? VoiceIntent.TeamLead
-                    : decision.Action == SquadAction.RequestCover ? VoiceIntent.TeamNeedCover
-                    : decision.Action == SquadAction.Rallying ? VoiceIntent.TeamRegroup
-                    : decision.Action == SquadAction.HoldTeam ? VoiceIntent.TeamHold : VoiceIntent.TeamRetreat;
-                EPhraseTrigger phrase = decision.Reply ? EPhraseTrigger.Roger
-                    : decision.Action == SquadAction.Following ? EPhraseTrigger.Going
-                    : decision.Action == SquadAction.Covering ? EPhraseTrigger.Covering
-                    : decision.Action == SquadAction.Advancing ? EPhraseTrigger.GoForward
-                    : decision.Action == SquadAction.Leading ? EPhraseTrigger.FollowMe
-                    : decision.Action == SquadAction.RequestCover ? EPhraseTrigger.CoverMe
-                    : decision.Action == SquadAction.Rallying ? EPhraseTrigger.Regroup
-                    : decision.Action == SquadAction.HoldTeam ? EPhraseTrigger.HoldPosition : EPhraseTrigger.GetBack;
+                VoiceIntent intent = SquadDialogue.Intent(decision);
+                EPhraseTrigger phrase = (EPhraseTrigger)SquadDialogue.Phrase(decision);
                 string group = decision.Reply ? "team-response"
                     : decision.Action == SquadAction.Retreating ? "team-retreat"
-                    : decision.Action == SquadAction.RequestCover ? "team-request" : "team-coordination";
+                    : decision.Action == SquadAction.RequestCover ? "team-request" : SquadDialogue.Tactical(decision.Action) ? "team-tactical" : "team-coordination";
                 if (decision.Reply || decision.Action == SquadAction.Retreating || decision.Action == SquadAction.RequestCover)
                     _queue.RemoveKind(ReactionKind.Squad, "NewSquadSituation");
                 Offer(ReactionKind.Squad, group, 60, 0.2f + (float)_random.NextDouble() * 0.2f,
-                    3f, SquadMemory.DecisionGap, _squad.Subject(decision), phrase, intent, squad: decision);
+                    decision.Reply ? 5f : 3f, decision.Reply ? 8f : SquadDialogue.Tactical(decision.Action) ? 8f : SquadMemory.DecisionGap, _squad.Subject(decision), phrase, intent, squad: decision);
             }
             if (!squadContext.Survival && !OthersSpeaking(now))
             {
@@ -685,6 +671,13 @@ namespace ImmersiveVoice
                 blocked = PlaybackRules.Movement(r.Cue.Intent, r.Cue.Urgent, aiming, sprinting,
                     stealth && _settings.RespectStealth.Value);
                 if (blocked != null) { Waiting(r, blocked); return false; }
+                if (r.Kind == ReactionKind.Squad && r.Squad.Reply)
+                {
+                    // A client without the exact audio never claims the only reply slot.
+                    if (!_hasClip((EPhraseTrigger)r.Cue.Phrase)) return true; // Choose records NoMatchingBank.
+                    blocked = _squad.DialogueGate(r.Squad, now);
+                    if (blocked != null) { Waiting(r, blocked); return false; }
+                }
                 return true;
             });
         }
@@ -696,8 +689,7 @@ namespace ImmersiveVoice
             if (r.Cue.Group == "health") RefreshHealthCue(r, context);
             r.InvalidReason = SemanticVoice.PendingRejectionReason(r.Cue.Intent, context, r.DamageVersion);
             if (r.InvalidReason != null) return false;
-            if ((r.Kind == ReactionKind.EnemyDown || r.Kind == ReactionKind.Recovery || r.Kind == ReactionKind.AfterTreatment)
-                && r.ExchangeVersion != _combat.ExchangeVersion)
+            if (ReactionQueue.ExchangeInvalidates(r.Kind, r.Cue.Intent, r.ExchangeVersion != _combat.ExchangeVersion))
             { r.InvalidReason = "ExchangeResumed"; return false; }
             switch (r.Kind)
             {
@@ -827,6 +819,7 @@ namespace ImmersiveVoice
             else { r.ReadyAt = Time.time + 1.25f; Waiting(r, "NativePlaybackRejected"); }
         }
         public void Unavailable(Reaction r) { _queue.Remove(r); Dropped(r, r.InvalidReason ?? "NoMatchingBank"); }
+        public void NativeSpoken(EPhraseTrigger phrase, TaggedClip clip) => _squad.LocalSpoken(phrase, clip);
         public void Spoke(VoiceCue cue, bool automatic)
         {
             if (cue == null) return;
@@ -861,7 +854,7 @@ namespace ImmersiveVoice
         {
             if (!_settings.Debug.Value && !_journal.Enabled) return;
             BarkContext c = Context;
-            string fields = FormattableString.Invariant($"Event={r.Kind} Request={r.Cue.RequestId} Priority={r.Priority} Group={r.Cue.Group} Remaining={r.ExpiresAt - Time.time:F2} Voice={_player?.Speaker?.PlayerVoice} Mode={c.Mode} Combat={c.Combat} FightSeconds={c.FightDuration:F1} PeakPressure={c.PeakPressure:F1} TookHostileHit={c.TookHostileHit} HadMalfunction={c.HadMalfunction} ObservedDowns={c.RecentObservedDowns} EndingSelected={c.EndingSelected} Exchange={r.ExchangeVersion}/{_combat.ExchangeVersion} FaultEpisode={r.MalfunctionEpisode} Health={c.Injury} HealthEpisode={_healthSpeech.Version} Bleeding={c.Bleeding} HeavyBleeding={c.HeavyBleeding} ArmFracture={c.ArmFracture} LegFracture={c.LegFracture} RecentHit={c.RecentlyHit} DamageVersion={r.DamageVersion}/{c.DamageVersion} Healing={c.Healing} Teammate={c.NearbyTeammate} RecentTeammate={c.RecentTeammate} AcuteHealth={r.Cue.AcuteHealth} Intent={r.Cue.Intent} Phrase={(EPhraseTrigger)r.Cue.Phrase} SquadAction={r.Squad.Action} Peer={(r.Squad.Exists ? r.Squad.Slot : r.Loss.Exists ? r.Loss.Slot : -1)} PeerVersion={(r.Squad.Exists ? r.Squad.PeerVersion : r.Loss.Version)} Episode={r.Squad.Episode} Reply={r.Squad.Reply} NpcEpisode={r.NpcEpisode} Decision={decision} Reason={reason}");
+            string fields = FormattableString.Invariant($"Event={r.Kind} Request={r.Cue.RequestId} Priority={r.Priority} Group={r.Cue.Group} Remaining={r.ExpiresAt - Time.time:F2} Voice={_player?.Speaker?.PlayerVoice} Mode={c.Mode} Combat={c.Combat} FightSeconds={c.FightDuration:F1} PeakPressure={c.PeakPressure:F1} TookHostileHit={c.TookHostileHit} HadMalfunction={c.HadMalfunction} ObservedDowns={c.RecentObservedDowns} EndingSelected={c.EndingSelected} Exchange={r.ExchangeVersion}/{_combat.ExchangeVersion} FaultEpisode={r.MalfunctionEpisode} Health={c.Injury} HealthEpisode={_healthSpeech.Version} Bleeding={c.Bleeding} HeavyBleeding={c.HeavyBleeding} ArmFracture={c.ArmFracture} LegFracture={c.LegFracture} RecentHit={c.RecentlyHit} DamageVersion={r.DamageVersion}/{c.DamageVersion} Healing={c.Healing} Teammate={c.NearbyTeammate} RecentTeammate={c.RecentTeammate} AcuteHealth={r.Cue.AcuteHealth} Intent={r.Cue.Intent} Phrase={(EPhraseTrigger)r.Cue.Phrase} SquadAction={r.Squad.Action} Peer={(r.Squad.Exists ? r.Squad.Slot : r.Loss.Exists ? r.Loss.Slot : -1)} PeerVersion={(r.Squad.Exists ? r.Squad.PeerVersion : r.Loss.Version)} Episode={r.Squad.Episode} Reply={r.Squad.Reply} DialogueSequence={r.Squad.Dialogue.Sequence} NpcEpisode={r.NpcEpisode} Decision={decision} Reason={reason}");
             Record(fields);
         }
 

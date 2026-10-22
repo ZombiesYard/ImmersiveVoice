@@ -8,7 +8,7 @@ namespace ImmersiveVoice
         Contact, LostVisual, KillConfirm, TacticalEnemyDown, KillTaunt,
         Recovery, Acknowledge, CombatBark, CalmMutter, NativeContext,
         RepeatedContact, Bleeding, ArmFracture, LegFracture, MedicalRequest, TeamFollowing, TeamCovering, TeamAdvance, TeamRetreat,
-        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, NpcRetort, NpcNoise, NpcMutter, NpcAcknowledge, NpcFollowing, NpcCovering
+        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, TeamOnPosition, TeamGoodWork, NpcRetort, NpcNoise, NpcMutter, NpcAcknowledge, NpcFollowing, NpcCovering
     }
 
     internal enum VoiceMode { Solo, FikaHost, FikaClient }

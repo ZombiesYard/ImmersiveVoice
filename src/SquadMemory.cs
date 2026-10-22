@@ -25,9 +25,9 @@ namespace ImmersiveVoice
         }
     }
 
-    internal enum SquadCommand { None, Follow, Cover, Advance, Retreat, Regroup, Hold }
+    internal enum SquadCommand { None, Follow, Cover, Advance, Retreat, Regroup, Hold, Praise }
     internal enum SquadAction { None, Following, Covering, Advancing, Retreating, Regrouping, Holding,
-        Leading, RequestCover, Rallying, HoldTeam }
+        Leading, RequestCover, Rallying, HoldTeam, Compliment }
     internal struct SquadDecision
     {
         public int Slot, PeerVersion, Episode, CommandVersion, RequestSerial, ThreatVersion, ObservationVersion;
@@ -35,6 +35,7 @@ namespace ImmersiveVoice
         public bool Reply;
         public float SelectedAt;
         public SquadPoint Self, Other, Motion;
+        public DialogueTicket Dialogue;
         public bool Exists => Action != SquadAction.None;
     }
 
@@ -54,7 +55,7 @@ namespace ImmersiveVoice
             public float SampleAt = -1000f, FollowSince = -1f, LastFollow = -1000f, Distance;
             public float HitAt = -1000f, ShotAt = -1000f, FirstShot = -1000f, CommandUntil, CommandAt;
             public int Shots;
-            public string Attacker, CoverTarget, CoverEndReason;
+            public string Attacker, CoverTarget, CoverEndReason, DecidedCoverTarget;
             public SquadCommand Command;
             public SquadAction Movement;
             public int MoveEpisode, MoveDecided, RequestSerial;
@@ -68,10 +69,12 @@ namespace ImmersiveVoice
             public readonly Initiative Lead = new Initiative(), Rally = new Initiative(), Hold = new Initiative();
             public float PairedAt = -1000f, MovedAt = -1000f, FarSince = -1f, FarDistance;
             public SquadPoint FarSelf, StopSelf;
-            public bool WasPaired;
+            public bool WasPaired, OtherMoving;
+            public float LeadAt, HoldAt;
+            public DialogueTicket Dialogue;
         }
         private readonly Peer[] _peers = { new Peer(), new Peer(), new Peer() };
-        private float _decisionAt, _replyAt, _retreatAt, _manualUntil;
+        private float _decisionAt, _replyAt, _retreatAt, _manualUntil, _tacticalAt;
         private int _primary = -1;
         private int _requestSerial, _decisionRequestSerial, _threatVersion;
         private string _threatId;
@@ -90,9 +93,10 @@ namespace ImmersiveVoice
             p.Version++; p.Present = false;
             Invalidate(p);
             p.FollowDecided = p.CoverDecided = false;
+            p.DecidedCoverTarget = null;
             p.LastFollow = -1000f;
             p.MoveDecided = 0; p.LastMove = -1000f;
-            p.Lead.Clear(); p.Rally.Clear(); p.Hold.Clear(); p.PairedAt = p.MovedAt = -1000f;
+            p.Lead.Clear(); p.Rally.Clear(); p.Hold.Clear(); p.LeadAt = p.HoldAt = 0; p.Dialogue = default; p.PairedAt = p.MovedAt = -1000f;
             if (_primary == slot) _primary = -1;
         }
         private static void Invalidate(Peer p)
@@ -104,7 +108,7 @@ namespace ImmersiveVoice
             p.Attacker = p.CoverTarget = null; p.HitAt = p.ShotAt = -1000f; p.Shots = 0;
             p.CoverEndReason = null;
             ResetMovement(p);
-            p.Speed = 0f; p.ClosingSince = p.StoppedSince = -1f; p.ArrivedAt = -1000f;
+            p.Speed = 0f; p.OtherMoving = false; p.ClosingSince = p.StoppedSince = -1f; p.ArrivedAt = -1000f;
             p.HiddenSince = -1f; p.FarSince = -1f; p.WasPaired = false;
             p.Lead.Interrupt(); p.Rally.Interrupt(); p.Hold.Interrupt();
         }
@@ -208,6 +212,7 @@ namespace ImmersiveVoice
                 SquadPoint mine = self - old.Self, theirs = other - old.Other, separation = other - self;
                 float myLength = (float)Math.Sqrt(mine.FlatSquared), theirLength = (float)Math.Sqrt(theirs.FlatSquared);
                 p.Speed = myLength / dt;
+                p.OtherMoving = theirLength >= 0.6f * dt;
                 p.LastMotion = mine;
                 if (myLength >= 0.6f * dt && theirLength >= 0.6f * dt)
                 {
@@ -218,14 +223,16 @@ namespace ImmersiveVoice
                         && ahead >= 0.75f && lateralSquared <= 25f
                         && SquadPoint.Dot(mine, theirs) >= 0.65f * myLength * theirLength
                         && Math.Abs(p.Distance - oldDistance) <= 3f * dt;
-                    if (RecentThreat(now) && Math.Abs(separation.Y) < 2f
-                        && SquadPoint.Dot(mine, theirs) >= 0.65f * myLength * theirLength)
-                    {
-                        int mineDirection = Direction(old.Self, self, mine, myLength, dt);
-                        int theirDirection = Direction(old.Other, other, theirs, theirLength, dt);
-                        if (mineDirection != 0 && mineDirection == theirDirection)
-                            movement = mineDirection > 0 ? SquadAction.Advancing : SquadAction.Retreating;
-                    }
+                }
+                // A teammate may remain on overwatch while the local player moves.
+                // The threat anchor is still locally observed, never a hidden target update.
+                if (RecentThreat(now) && Math.Abs(separation.Y) < 2f && myLength >= 0.6f * dt)
+                {
+                    int direction = Direction(old.Self, self, mine, myLength, dt);
+                    bool compatible = theirLength < 0.6f * dt
+                        || Direction(old.Other, other, theirs, theirLength, dt) == direction;
+                    if (direction != 0 && compatible)
+                        movement = direction > 0 ? SquadAction.Advancing : SquadAction.Retreating;
                 }
                 SampleRequest(p, now, self, other, mine, myLength, dt);
                 SampleInitiatives(p, now, self, other, mine, theirs, myLength, theirLength, dt);
@@ -293,11 +300,12 @@ namespace ImmersiveVoice
             }
         }
 
-        public void Hear(int slot, SquadCommand command, float now, float duration)
+        public void Hear(int slot, SquadCommand command, float now, float duration, DialogueTicket dialogue = default)
         {
             Peer p = _peers[slot];
             if (!Fresh(p, now) || command == SquadCommand.None || float.IsNaN(duration) || duration < 0f || duration > 20f) return;
             if (p.Command == command && now < p.CommandUntil) return; // repeated packets cannot renew a request
+            p.Dialogue = dialogue;
             p.Command = command; p.CommandAt = now + duration + 0.35f; p.CommandUntil = now + duration + 6f;
             p.CommandVersion++; p.CommandDecided = false;
             p.RequestSerial = ++_requestSerial;
@@ -321,7 +329,7 @@ namespace ImmersiveVoice
                 {
                     p.CommandDecided = true; p.CommandVersion++;
                     if (p.Command == SquadCommand.Follow) p.FollowDecided = true;
-                    else if (p.Command == SquadCommand.Cover) p.CoverDecided = true;
+                    else if (p.Command == SquadCommand.Cover) { p.CoverDecided = true; p.DecidedCoverTarget = p.CoverTarget; }
                     else if (p.Command == SquadCommand.Advance) p.MoveDecided |= 1;
                     else if (p.Command == SquadCommand.Retreat) p.MoveDecided |= 2;
                 }
@@ -353,8 +361,9 @@ namespace ImmersiveVoice
                 if (string.IsNullOrEmpty(visibleTarget)) continue;
                 if (!Fresh(p, now)) continue;
                 bool request = p.Command == SquadCommand.Cover && now <= p.CommandUntil;
+                bool movingTeammate = RecentThreat(now) && visibleTarget == _threatId && p.OtherMoving;
                 bool matchingHit = p.Attacker == visibleTarget && now - p.HitAt <= 8f;
-                if (!matchingHit && !request) continue;
+                if (!matchingHit && !request && !movingTeammate) continue;
                 // A cover request alone supports firing at a visible threat. A
                 // witnessed attack additionally associates it with that enemy.
                 if (p.Attacker != null && now - p.HitAt <= 8f && !matchingHit) continue;
@@ -381,9 +390,10 @@ namespace ImmersiveVoice
         }
         private static bool Fresh(Peer p, float now) => p.Present && p.Available && now - p.SampleAt <= Freshness;
         private static bool Following(Peer p, float now) => Fresh(p, now) && p.FollowSince >= 0f && now - p.FollowSince >= 2.5f;
-        private static bool Covering(Peer p, float now) => Fresh(p, now) && p.Shots >= 2
+        private bool Covering(Peer p, float now) => Fresh(p, now) && p.Shots >= 2
             && p.ShotAt - p.FirstShot >= 0.2f && now - p.ShotAt <= 2f
-            && (now - p.HitAt <= 8f || p.Command == SquadCommand.Cover && now <= p.CommandUntil);
+            && (now - p.HitAt <= 8f || p.Command == SquadCommand.Cover && now <= p.CommandUntil
+                || RecentThreat(now) && p.CoverTarget == _threatId && p.OtherMoving);
 
         private static SquadAction RequestedAction(SquadCommand command)
         {
@@ -395,6 +405,7 @@ namespace ImmersiveVoice
                 case SquadCommand.Retreat: return SquadAction.Retreating;
                 case SquadCommand.Regroup: return SquadAction.Regrouping;
                 case SquadCommand.Hold: return SquadAction.Holding;
+                case SquadCommand.Praise: return SquadAction.Compliment;
                 default: return SquadAction.None;
             }
         }
@@ -405,10 +416,11 @@ namespace ImmersiveVoice
             if (action == SquadAction.Covering) return weaponReady && Covering(p, now);
             Motion last = p.History[(p.Head + HistoryCapacity - 1) % HistoryCapacity];
             if (Math.Abs(last.Other.Y - last.Self.Y) >= 2f) return false;
+            if (action == SquadAction.Compliment) return p.Command == SquadCommand.Praise && now <= p.CommandUntil;
             if (action >= SquadAction.Leading) return InitiativeValid(p, action, now);
             if (action == SquadAction.Advancing || action == SquadAction.Retreating)
                 return RecentThreat(now) && p.Movement == action && p.MoveSince >= 0f && now - p.MoveSince >= 2f
-                    && (last.Self - p.MoveSelf).FlatSquared >= 4f && (last.Other - p.MoveOther).FlatSquared >= 4f;
+                    && (last.Self - p.MoveSelf).FlatSquared >= 4f;
             if (now > p.CommandUntil) return false;
             if (action == SquadAction.Regrouping)
                 return p.Command == SquadCommand.Regroup && p.Distance <= 6f && now - p.ArrivedAt <= 1.5f;
@@ -423,7 +435,7 @@ namespace ImmersiveVoice
                 : action == SquadAction.RequestCover ? _coverNeed.Version : For(p, action)?.Version ?? p.CommandVersion;
         private static int MoveBit(SquadAction action) => action == SquadAction.Advancing ? 1 : 2;
         private bool Decided(Peer p, SquadAction action)
-            => action == SquadAction.Following ? p.FollowDecided : action == SquadAction.Covering ? p.CoverDecided
+            => action == SquadAction.Following ? p.FollowDecided : action == SquadAction.Covering ? p.CoverDecided && p.DecidedCoverTarget == p.CoverTarget
                 : action == SquadAction.RequestCover ? _coverNeed.Decided : For(p, action)?.Decided
                     ?? (p.MoveDecided & MoveBit(action)) != 0;
         public SquadDecision Decide(float now, bool expressions, bool replies, bool weaponReady, bool survival = false, bool healing = false)
@@ -469,33 +481,40 @@ namespace ImmersiveVoice
                 best = new SquadDecision { Slot = i, PeerVersion = p.Version, Action = action, Reply = reply,
                     Episode = Episode(p, action), ThreatVersion = _threatVersion,
                     SelectedAt = now, Self = observed.Self, Other = observed.Other, Motion = p.LastMotion, ObservationVersion = p.ObservationVersion,
-                    CommandVersion = p.CommandVersion, RequestSerial = _requestSerial };
+                    CommandVersion = p.CommandVersion, RequestSerial = _requestSerial, Dialogue = p.Dialogue };
             }
             if (!best.Exists) return best;
             Peer selected = _peers[best.Slot];
             // Choose the actual strongest relationship first, even if it already
             // spoke (or had no audio). Do not cycle through weaker partners after
             // the shared cooldown while the same formation continues.
-            if (!best.Reply && Decided(selected, best.Action)) { Silence = SquadSilence.AlreadyConsidered; return default; }
+            if (!best.Reply && (Decided(selected, best.Action)
+                || best.Action == SquadAction.Leading && now < selected.LeadAt
+                || best.Action == SquadAction.HoldTeam && now < selected.HoldAt)) { Silence = SquadSilence.AlreadyConsidered; return default; }
             // A new real request may replace an unspoken expression. It cannot
             // retry missing audio, bypass manual silence or start an acknowledgement loop.
             bool newReply = best.Reply && selected.RequestSerial > _decisionRequestSerial && now >= _replyAt;
             bool newRetreat = !best.Reply && best.Action == SquadAction.Retreating && now >= _retreatAt;
             bool newCover = !best.Reply && best.Action == SquadAction.RequestCover && now >= _coverAt;
-            if (now < _decisionAt && !newReply && !newRetreat && !newCover)
+            bool tactical = SquadDialogue.Tactical(best.Action);
+            if (now < (tactical ? _tacticalAt : _decisionAt) && !newReply && !newRetreat && !newCover)
             { Silence = SquadSilence.DecisionCooldown; return default; }
             if (best.Reply && now < _replyAt) { Silence = SquadSilence.ReplyCooldown; return default; }
             if (best.Action == SquadAction.Following) selected.FollowDecided = true;
-            else if (best.Action == SquadAction.Covering) selected.CoverDecided = true;
+            else if (best.Action == SquadAction.Covering) { selected.CoverDecided = true; selected.DecidedCoverTarget = selected.CoverTarget; }
             else if (best.Action == SquadAction.Advancing || best.Action == SquadAction.Retreating)
                 selected.MoveDecided |= MoveBit(best.Action);
             else if (best.Action == SquadAction.RequestCover) { _coverNeed.Decided = true; _coverAt = now + DecisionGap; }
             else if (For(selected, best.Action) is Initiative initiative) initiative.Decided = true;
-            if (best.Reply) { selected.CommandDecided = true; _replyAt = now + DecisionGap; }
+            if (best.Reply) { selected.CommandDecided = true; _replyAt = now + 8f; }
             if (best.Action == SquadAction.Retreating) _retreatAt = now + DecisionGap;
             _primary = best.Slot;
             _decisionRequestSerial = _requestSerial;
-            _decisionAt = now + DecisionGap; // silence/missing clips do not pick another partner or phrase
+            if (best.Action == SquadAction.Leading) selected.LeadAt = now + 90f;
+            if (best.Action == SquadAction.HoldTeam) selected.HoldAt = now + 60f;
+            if (tactical) _tacticalAt = now + 8f;
+            else if (!best.Reply) _decisionAt = now + DecisionGap;
+            // Missing clips consume this opportunity; never cycle through partners.
             Silence = SquadSilence.None;
             return best;
         }

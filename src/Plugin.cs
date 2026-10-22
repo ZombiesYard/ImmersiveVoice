@@ -17,11 +17,12 @@ namespace ImmersiveVoice
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "local.immersivevoice";
-        public const string Version = "2.13.1";
+        public const string Version = "2.14.0";
         private static Plugin _instance;
         private Harmony _harmony;
         private Settings _settings;
         private FikaBridge _fika;
+        internal static FikaDialogueNetwork Dialogue { get; private set; }
         private VoiceSession _session;
         private float _nextTick;
         private bool _failed;
@@ -33,9 +34,14 @@ namespace ImmersiveVoice
             try
             {
                 _fika = new FikaBridge();
+                if (_fika.Assembly != null)
+                {
+                    try { Dialogue = new FikaDialogueNetwork(_fika.Assembly, _fika, Logger); }
+                    catch (Exception ex) { Logger.LogWarning("Squad dialogue transport unavailable: " + FaultDetails.Format(ex)); }
+                }
                 if (_fika.Headless)
                 {
-                    Logger.LogInfo("Headless client detected: automatic voice is inactive; no patches installed.");
+                    Logger.LogInfo("Headless client detected: dialogue arbitration only; automatic voice is inactive; no voice patches installed.");
                     enabled = false;
                     return;
                 }
@@ -154,6 +160,7 @@ namespace ImmersiveVoice
         {
             StopSession();
             _settings?.Dispose();
+            Dialogue?.Dispose(); Dialogue = null;
             _harmony?.UnpatchSelf();
             if (_instance == this) _instance = null;
         }

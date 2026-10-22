@@ -35,8 +35,15 @@ namespace ImmersiveVoice
             Peer p = _peers[slot];
             if (!p.Present) return null;
             float observed = p.Available ? now : p.SampleAt;
-            return FormattableString.Invariant($"Event=SquadEvidence Peer={slot} PeerVersion={p.Version} Fresh={Fresh(p, now)} ObservationAge={now - p.SampleAt:F2} Distance={p.Distance:F2} LocalSpeed={p.Speed:F2} FollowSeconds={(p.FollowSince < 0f ? -1f : observed - p.FollowSince):F2} LeadSeconds={(p.Lead.Since < 0f ? -1f : observed - p.Lead.Since):F2} Movement={p.Movement} MoveSeconds={(p.MoveSince < 0f ? -1f : observed - p.MoveSince):F2} Shots={p.Shots} HeardCommand={p.Command} CommandRemaining={p.CommandUntil - now:F2} OwnAction={_ownAction}");
+            return FormattableString.Invariant($"Event=SquadEvidence Peer={slot} PeerVersion={p.Version} Fresh={Fresh(p, now)} ObservationAge={now - p.SampleAt:F2} Distance={p.Distance:F2} LocalSpeed={p.Speed:F2} FollowSeconds={(p.FollowSince < 0f ? -1f : observed - p.FollowSince):F2} LeadSeconds={(p.Lead.Since < 0f ? -1f : observed - p.Lead.Since):F2} Movement={p.Movement} MoveSeconds={(p.MoveSince < 0f ? -1f : observed - p.MoveSince):F2} Shots={p.Shots} HeardCommand={p.Command} CommandRemaining={p.CommandUntil - now:F2} OwnAction={_ownAction} CoverReason={CoverEvidence(p, now)} MoveReason={MoveEvidence(p, now)} LeadRepeatRemaining={Math.Max(0f, p.LeadAt - now):F1}");
         }
+
+        private string CoverEvidence(Peer p, float now)
+            => !Fresh(p, now) ? "NoFreshPeer" : p.Shots < 2 ? "InsufficientRelatedFire"
+                : now - p.ShotAt > 2f ? "FireExpired" : Covering(p, now) ? "Ready" : "NoSupportContext";
+        private string MoveEvidence(Peer p, float now)
+            => !RecentThreat(now) ? "NoRecentThreat" : !Fresh(p, now) ? "NoFreshPeer"
+                : p.Movement == SquadAction.None ? "DirectionOrSpeed" : p.MoveSince < 0 || now - p.MoveSince < 2f ? "MovementTooBrief" : "Ready";
 
         public void OwnAction(float now, SquadOwnAction action, bool engaged)
         {

@@ -353,6 +353,8 @@ SquadTacticalScenarios.Run(Check);
 SquadContinuityScenarios.Run(Check);
 JournalScenarios.Run(Check);
 NpcReplyScenarios.Run(Check);
+SquadDialogueScenarios.Run(Check);
+DialoguePacketScenarios.Run(Check);
 
 // Exhaust every ownership/lifecycle combination; only a live, running, local
 // human outside the hideout/headless/downed/extracted states may speak.
@@ -592,6 +594,31 @@ Check(!Walk(plugin.MainModule.Types).SelectMany(t => t.Methods).Where(m => m.Has
     "connecting to headless is never used to disable a human client's director");
 Check(Type(fika, "Fika.Core.Main.Players.FikaPlayer").Properties.Any(p => p.Name == "Downed"), "downed guard matches installed Fika");
 Check(Method(fika, "Fika.Core.Main.GameMode.CoopGame", "Extract").Parameters[0].ParameterType.FullName == "Fika.Core.Main.Players.FikaPlayer", "extraction guard matches installed Fika");
+ushort dialogueHash = DialoguePacketScenarios.Installed(Check, root);
+ushort PacketHash(string name)
+{
+    ushort hash = ushort.MaxValue;
+    foreach (char c in name)
+    {
+        hash ^= (ushort)(c << 8);
+        for (int bit = 0; bit < 8; bit++) hash = (ushort)((hash & 0x8000) == 0 ? hash << 1 : (hash << 1) ^ 0x1021);
+    }
+    return hash;
+}
+var registeredPackets = Walk(fika.MainModule.Types).SelectMany(t => t.Methods).Where(m => m.HasBody)
+    .SelectMany(m => m.Body.Instructions).Select(i => i.Operand).OfType<GenericInstanceMethod>()
+    .Where(m => m.Name.StartsWith("Register") && m.GenericArguments.Count > 0)
+    .Select(m => m.GenericArguments[0].FullName.Replace('/', '+')).Distinct().ToArray();
+Check(!registeredPackets.Any(n => PacketHash(n) == dialogueHash), "dialogue packet hash does not collide with installed Fika registrations");
+Check(Type(fika, "Fika.Core.Modding.Events.PeerConnectedEvent").Properties.Any(p => p.Name == "NetworkManager")
+    && Type(fika, "Fika.Core.Modding.Events.FikaNetworkManagerCreatedEvent").Properties.Any(p => p.Name == "Manager"),
+    "dialogue lifecycle adapter handles the distinct Fika manager event properties");
+Check(Type(fika, "Fika.Core.Main.Components.CoopHandler").Properties.Any(p => p.Name == "Players")
+    && Type(fika, "Fika.Core.Main.Players.FikaPlayer").Fields.Any(f => f.Name == "NetId" && f.FieldType.MetadataType == MetadataType.Int32),
+    "server human lookup and cached network identity match installed Fika");
+foreach (var entry in new[] { ("Going", 59), ("Covering", 60), ("OnPosition", 64), ("GoodWork", 66) })
+    Check((int)Type(game, "EPhraseTrigger").Fields.Single(f => f.Name == entry.Item1).Constant == entry.Item2,
+        "dialogue semantic ID matches installed enum: " + entry.Item1);
 int callsites = 0;
 foreach (var type in Walk(plugin.MainModule.Types))
 foreach (var method in type.Methods.Where(m => m.HasBody))

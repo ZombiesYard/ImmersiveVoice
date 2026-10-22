@@ -13,6 +13,19 @@ spec.loader.exec_module(module)
 
 
 class VoiceLogTests(unittest.TestCase):
+    def test_squad_grant_is_not_counted_as_audible_playback(self):
+        report = module.summarize([
+            "[AutoVoice] Session=a Event=SquadDialogue Decision=Observed Reason=HeardCall Peer=1 Sequence=5",
+            "[AutoVoice] Session=a Event=SquadDialogue Decision=Granted Reason=HostSelected Peer=1 Sequence=5",
+            "[AutoVoice] Session=a Event=SquadDialogueSummary Ready=True Sent=12 Received=20 Grants=0",
+            "[AutoVoice] Session=a Request=3 Event=Squad Decision=Suppressed Reason=DialogueAssignedElsewhere DialogueSequence=6",
+        ], timeline=True)
+        session = report["sessions"]["a"]
+        self.assertEqual(session["squad_dialogue_decisions"], {"HeardCall": 1, "HostSelected": 1})
+        self.assertEqual(session["squad_dialogue_network"], {"Ready": True, "Sent": 12, "Received": 20, "Grants": 0})
+        self.assertEqual(session["requests"]["3"]["history"][0]["DialogueSequence"], "6")
+        self.assertEqual(report["voices"], {})
+
     def test_npc_dialogue_relationships_and_bounded_work_are_reported(self):
         report = module.summarize([
             "[AutoVoice] Session=a Event=NpcHeard SourceVoice=Scav_1 Relation=Neutral HeardPhrase=FollowMe Decision=Observed Reason=AudibleNpcSpeech",

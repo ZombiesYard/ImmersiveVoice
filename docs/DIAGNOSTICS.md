@@ -45,3 +45,11 @@ python tools/summarize_voice_log.py PATH_TO_VOICE_LOG --timeline
 `PlaybackFault`包含请求、短语、异常次数、`Reason`和`Stack`。`Stack`使用“类型.方法@IL位置”，省略异常消息、参数及文件路径；最多16帧、3层异常并有长度上限。单次空引用/Unity对象失效不再立即结束整个导演，失败的事件候选以`NativePlaybackException`取消；已有原生忙碌/无素材拒绝仍走原规则。连续三次原生异常触发`PlaybackRecovery State=Silenced`，成功播放会清除累计异常。`Fault`和`NpcFault`也保留调用位置。摘要中的`fault_counts`统计全部故障，`fault_details`最多保留32条明细。
 
 `Confirmed`只表示已观察到原生说话回调。若回调之后又发生异常，可能同时出现`Confirmed=True`和`NativeException=True`；不能据此保证另一端收到声音。主日志被后续启动覆盖后，应保留对应独立战局日志供排查。
+
+## 2.14.0小队对话诊断
+
+`SquadDialogue`的`HeardCall`表示真实音频与元数据已匹配；`HostGrant`表示正在申请；`HostSelected`仅表示主机授权，不代表已播放。`MetadataUnavailable`表示来话缺少及时匹配的元数据；`DialogueUnavailable`、`DialogueAssignedElsewhere`和`DialogueAwaitingGrant`分别用于协调不可用、已分配他人/授权失效及等待授权。最终仍以带`Source=Auto`的`Played`和`PlaybackResult`核对。
+
+`Peer`是本端固定队友槽，`DialogueSequence`是该来话者的临时计数，不是全局玩家身份。每端时钟独立，序号不能直接跨不同来话者合并。`SquadDialogueSummary`记录当前网络管理器累计发送/接收消息调用数和主机授予次数，以及收尾时的`Ready`；发送调用不等于已交付，客户端`Grants=0`也不代表未收到授权。headless只在BepInEx主日志记录注册、故障和收尾计数。
+
+摘要新增`squad_dialogue_decisions`和`squad_dialogue_network`。`SquadEvidence`增加`CoverReason`、`MoveReason`和带路重复限制剩余时间，可区分缺少相关火力、动作太短与重复抑制。取得授权后动作失效、音效缺失或超时，不会把同一回应转交另一人。NPC互动仍沿用自己的日志和回应去重规则。

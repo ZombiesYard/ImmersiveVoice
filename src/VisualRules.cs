@@ -11,6 +11,7 @@ namespace ImmersiveVoice
             || intent == VoiceIntent.LostVisual || intent == VoiceIntent.FriendlyDown || intent == VoiceIntent.MedicalRequest
             || intent == VoiceIntent.Acknowledge || intent == VoiceIntent.TeamFollowing || intent == VoiceIntent.TeamCovering
             || intent == VoiceIntent.TeamAdvance || intent == VoiceIntent.TeamRetreat || intent == VoiceIntent.TeamLead
+            || intent == VoiceIntent.TeamOnPosition || intent == VoiceIntent.TeamGoodWork
             || intent == VoiceIntent.TeamNeedCover || intent == VoiceIntent.TeamRegroup || intent == VoiceIntent.TeamHold;
     }
 }

@@ -22,6 +22,10 @@ namespace ImmersiveVoice
             public string Perception;
             public float HitTraceAt = -1000f;
             public SquadLossEvidence LossEvidence;
+            public int HeardPhrase, HeardClip;
+            public float HeardAt = -1000f, HeardDuration;
+            public bool WaitingMetadata;
+            public DialogueTicket Requested, Granted;
             public readonly SquadAwareness Awareness = new SquadAwareness();
         }
         private readonly Player _local;
@@ -110,7 +114,7 @@ namespace ImmersiveVoice
             }
             if (empty < 0) return;
             Peer p = _peers[empty];
-            p.Player = player; p.Id = player.ProfileId;
+            p.Player = player; p.Id = player.ProfileId; p.WaitingMetadata = false; p.Requested = p.Granted = default;
             _memory.Bind(empty);
             _loss.Bind(empty);
             BindSpeaker(p);
@@ -196,6 +200,7 @@ namespace ImmersiveVoice
                     for (int i = 0; i < SquadMemory.Capacity; i++)
                     {
                         Peer p = _peers[i];
+                        BindHeardDialogue(p, i, now);
                         bool seen = Seen(p, now);
                         bool heard = !seen && Audible(p, now);
                         bool companion = !seen && !heard && Companion(p, now);
@@ -252,6 +257,11 @@ namespace ImmersiveVoice
             if (!d.Exists || d.Slot < 0 || d.Slot >= SquadMemory.Capacity) return "SquadInvalidDecision";
             if (!(d.Reply ? _settings.TeamReplies.Value : _settings.SquadCoordination.Value)) return "SquadFeatureDisabled";
             if (!Available(_peers[d.Slot])) return "SquadPeerUnavailable";
+            if (d.Reply && d.Dialogue.Exists)
+            {
+                int winner = Plugin.Dialogue?.Winner(d.Dialogue, now) ?? -1;
+                if (winner < 0 || winner > 0 && winner != _fika.NetworkId(_local)) return "DialogueAssignedElsewhere";
+            }
             return _memory.RejectionReason(d, now, weaponReady, _settings.TeamReplies.Value);
         }
         public void Observe(float now, VisibleContact seen)
@@ -333,19 +343,67 @@ namespace ImmersiveVoice
                     p.Awareness.Heard(now);
                     _memory.Sample(i, now, Point(_local.Transform.position), Point(p.Player.Transform.position), true);
                     _othersUntil = Math.Max(_othersUntil, now + clip.Length + 0.35f);
+                    // Manual Roger retains its conservative suppression. An
+                    // unrelated Going/Covering must not cancel another call;
+                    // automatic replies are coordinated by their exact ticket.
                     if (phrase == EPhraseTrigger.Roger) _memory.OtherAcknowledged(now);
-                    SquadCommand command = phrase == EPhraseTrigger.FollowMe ? SquadCommand.Follow
-                        : phrase == EPhraseTrigger.CoverMe ? SquadCommand.Cover
-                        : phrase == EPhraseTrigger.GoForward || phrase == EPhraseTrigger.Gogogo ? SquadCommand.Advance
-                        : phrase == EPhraseTrigger.GetBack ? SquadCommand.Retreat
-                        : phrase == EPhraseTrigger.Regroup ? SquadCommand.Regroup
-                        : phrase == EPhraseTrigger.HoldPosition ? SquadCommand.Hold : SquadCommand.None;
-                    _memory.Hear(i, command, now, clip.Length);
+                    SquadCommand command = SquadDialogue.Command((int)phrase);
+                    if (command != SquadCommand.None && _settings.TeamReplies.Value)
+                    {
+                        p.HeardPhrase = (int)phrase; p.HeardClip = clip.NetId;
+                        p.HeardAt = now; p.HeardDuration = clip.Length; p.WaitingMetadata = true;
+                        BindHeardDialogue(p, i, now);
+                    }
                     if (Tracing) Trace(FormattableString.Invariant($"Event=SquadHeard Peer={i} Phrase={phrase} Command={command} Duration={clip.Length:F2} Evidence={(Seen(p, now) ? "VisibleAndAudible" : "Audible")} ActionRequired=True"));
                     return;
                 }
             }
             catch (Exception ex) { Fail(ex); }
+        }
+        private void BindHeardDialogue(Peer p, int slot, float now)
+        {
+            if (!p.WaitingMetadata) return;
+            if (now - p.HeardAt > 2f || !Available(p))
+            {
+                p.WaitingMetadata = false;
+                if (Tracing) Trace("Event=SquadDialogue Decision=Suppressed Reason=MetadataUnavailable");
+                return;
+            }
+            DialogueTicket ticket = Plugin.Dialogue?.Match(_fika.NetworkId(p.Player), p.HeardPhrase, p.HeardClip, p.HeardAt, now) ?? default;
+            if (!ticket.Exists) return;
+            _memory.Hear(slot, SquadDialogue.Command(p.HeardPhrase), p.HeardAt, p.HeardDuration, ticket);
+            p.WaitingMetadata = false;
+            if (Tracing) Trace($"Event=SquadDialogue Decision=Observed Reason=HeardCall Peer={slot} Sequence={ticket.Sequence}");
+        }
+        public void LocalSpoken(EPhraseTrigger phrase, TaggedClip clip)
+        {
+            if (!Enabled || clip?.Clip == null) return;
+            Plugin.Dialogue?.Publish(_fika.NetworkId(_local), (int)phrase, clip.NetId, clip.Length);
+        }
+        public string DialogueGate(SquadDecision decision, float now)
+        {
+            if (!decision.Reply) return null;
+            FikaDialogueNetwork net = Plugin.Dialogue;
+            if (net == null || !net.Ready || !decision.Dialogue.Exists) return "DialogueUnavailable";
+            int actor = _fika.NetworkId(_local), winner = net.Winner(decision.Dialogue, now);
+            Peer p = _peers[decision.Slot];
+            if (winner == actor)
+            {
+                if (!p.Granted.Same(decision.Dialogue))
+                {
+                    p.Granted = decision.Dialogue;
+                    if (Tracing) Trace($"Event=SquadDialogue Decision=Granted Reason=HostSelected Peer={decision.Slot} Sequence={decision.Dialogue.Sequence}");
+                }
+                return null;
+            }
+            if (winner != 0) return "DialogueAssignedElsewhere";
+            if (!p.Requested.Same(decision.Dialogue))
+            {
+                p.Requested = decision.Dialogue;
+                net.Request(decision.Dialogue, actor);
+                if (Tracing) Trace($"Event=SquadDialogue Decision=Waiting Reason=HostGrant Peer={decision.Slot} Sequence={decision.Dialogue.Sequence}");
+            }
+            return "DialogueAwaitingGrant";
         }
         public void Pause(float now, bool manual = false)
         {
@@ -356,7 +414,7 @@ namespace ImmersiveVoice
                 for (int i = 0; i < SquadMemory.Capacity; i++)
                 {
                     _peers[i].SeenAt = _peers[i].ClearAt = -1000f; _peers[i].InView = false;
-                    _peers[i].SpeakingUntil = 0f; _peers[i].Awareness.Clear();
+                    _peers[i].SpeakingUntil = 0f; _peers[i].Awareness.Clear(); _peers[i].WaitingMetadata = false;
                 }
             }
             _active = false; _othersUntil = 0f;
@@ -378,6 +436,8 @@ namespace ImmersiveVoice
             {
                 double unit = 1000d / Stopwatch.Frequency;
                 Trace(FormattableString.Invariant($"Event=SquadSummary Samples={_samples} SightChecks={_checks} Decisions={_decisions} DiscoveryEntries={_discoveryEntries} Hits={_hits} HitCallbacks={_hitCallbacks} Shots={_shots} MeasuredTicks={_ticks} AverageMs={(_ticks == 0 ? 0 : _elapsed * unit / _ticks):F4} MaxMs={_maximum * unit:F4}"));
+                FikaDialogueNetwork net = Plugin.Dialogue;
+                if (net != null) Trace($"Event=SquadDialogueSummary Ready={net.Ready} Sent={net.Sent} Received={net.Received} Grants={net.Grants}");
             }
         }
     }

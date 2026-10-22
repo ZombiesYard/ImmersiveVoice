@@ -1,11 +1,11 @@
 标题：
-[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.13.1｜沉浸式角色语音与队友交流｜GPL开源
+[SPT 4.1.6 / Fika 2.4.3] Immersive Voice 2.14.0｜沉浸式角色语音与队友交流｜GPL开源
 
 简介：
 换弹时提醒一句，发现敌人时发出通报，跟上队友、实际提供火力掩护时自然接话——Immersive Voice让角色根据正在发生的事情，使用自己的现有声线自动表达。
 
 Mod名称：Immersive Voice / 沉浸式角色语音
-版本：2.13.1（NPC互动测试版）
+版本：2.14.0（小队对话测试版）
 作者：ZombiesYard
 类型：BepInEx客户端插件
 支持环境：SPT 4.1.6 / EFT 0.16.9.40743
@@ -37,20 +37,20 @@ F12菜单支持简体中文和English。默认显示常用选项，高级设置�
 
 【安装方法】
 
-退出游戏，将附件ImmersiveVoice-2.13.1.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
+退出游戏，将附件ImmersiveVoice-2.14.0.zip中的BepInEx文件夹解压到客户端根目录，也就是EscapeFromTarkov.exe所在目录。
 
 最终文件路径：
 BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
 
 需要客户端已有BepInEx运行环境。F12图形设置需要ConfigurationManager；没有菜单插件也可以通过配置文件调整。
 
-不要放进服务端user/mods。SPT服务端和headless不需要安装。
+不要放进SPT服务端user/mods。SPT服务端无需安装；Fika的headless主机需要安装同版插件以协调接话，不创建角色语音。
 
 升级时覆盖DLL即可，保留BepInEx/config/local.immersivevoice.cfg。压缩包没有个人配置，不会覆盖已有设置。
 
 【Fika使用】
 
-每个客户端只控制自己的角色，使用Fika原生语音同步。希望哪名玩家自动说话，就在他的客户端安装。仅收听原版声线语音的队友无需安装本插件；自定义声线仍需双方具备相应资源。
+主机及所有客户端统一安装2.14.0，不混用旧版或未安装的客户端。每个客户端只控制自己的角色，声音使用Fika原生同步；主机用小型事件消息协调一人接话。真实听到、行为吻合且具备当前音效才申请。未收到主机能力确认时，协调回应保持静默；自定义声线仍需双方具备相应资源。
 
 【使用提示】
 
@@ -61,15 +61,15 @@ BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
 - 这些语音用于增强沉浸感，不能代替玩家之间的实际交流。
 - 已做构建、逻辑与接口验证；四人完整实战和不同Mod组合仍需更多反馈。不承诺零性能开销。
 
-【2.13.1更新】
+【2.14.0更新】
 
-修复Fika客户端把远端NPC当作人类过滤的问题，同时修正目视认敌和队友筛选。语音监听改为真正的声音播放入口；单次自动播放空引用不再立即终止整局导演。日志增加可保留的异常调用位置和NPC入口过滤计数。保持原有配置、概率、8个NPC记录和4Hz运动采样；缺少音效继续静默。修复后的实际听感和Fika联机效果待游戏内验证。
+跟随、掩护、就位和击倒后的称赞使用各自语义，不再统一喊收到。扩展换弹/空枪时的掩护、对移动队友的火力支援，以及队友留守时的推进/后撤。减少带路和停留重复，战术话语使用独立冷却。四人接话由主机协调，缺少精确音效不参与申请；没有新增射线或持续位置同步。日志可区分听到、申请、授权和最终播放。已通过本地规则、接口及四客户端模拟，实际听感和四人实战待验证。
 
 【下载与源码】
 
-安装包：本帖附件ImmersiveVoice-2.13.1.zip
+安装包：本帖附件ImmersiveVoice-2.14.0.zip
 GitHub：https://github.com/ZombiesYard/ImmersiveVoice
-版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.13.1
+版本下载及对应源码：https://github.com/ZombiesYard/ImmersiveVoice/releases/tag/v2.14.0
 源码以GPL-3.0-only发布。转载或分发修改版请保留声明，并遵守许可证的源码提供要求。游戏及第三方素材不在本项目授权范围内。
 
 【反馈】

@@ -52,13 +52,14 @@ def main():
 
 安装：退出客户端，将本压缩包中的BepInEx文件夹解压到包含EscapeFromTarkov.exe的客户端根目录。
 正确路径：BepInEx/plugins/ImmersiveVoice/ImmersiveVoice.dll
-无需安装到SPT服务端或headless。每名希望自动说话的玩家在自己的客户端安装。
+SPT服务端无需安装。Fika主机及所有客户端必须统一安装同版插件；headless主机也需安装以协调接话。
+不要混用旧版或未安装的客户端。headless不生成角色语音。
 
 F12配置菜单：切换简体中文/English，调整频率，按需展开高级设置。
 默认Pause键切换本局静默；原有手动喊话保留。
 与NPC自动交流默认开启；成功回应默认间隔30秒，同一NPC的90秒窗口内最多两次回应。
 按来话及关系选择敌对回应、动静提示、近处平静独白或行为吻合的友善应答；缺台词跳过。
-NPC互动仍待游戏内及Fika实测。
+四人接话已通过规则与模拟验证，实际听感和Fika实战尚待验证。
 配置首次启动自动生成：BepInEx/config/local.immersivevoice.cfg
 升级保留原有配置；卸载时退出游戏并删除插件目录。
 
