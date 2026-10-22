@@ -350,11 +350,14 @@ RaidRegressionScenarios.Run(Check);
 EnemyDownWaitScenarios.Run(Check);
 SquadScenarios.Run(Check);
 SquadTacticalScenarios.Run(Check);
+SquadBattleTacticsScenarios.Run(Check);
 SquadContinuityScenarios.Run(Check);
 JournalScenarios.Run(Check);
 NpcReplyScenarios.Run(Check);
 SquadDialogueScenarios.Run(Check);
 SquadReadyScenarios.Run(Check);
+CombatReportScenarios.Run(Check);
+EnemyDirectionScenarios.Run(Check);
 DialoguePacketScenarios.Run(Check);
 
 // Exhaust every ownership/lifecycle combination; only a live, running, local
@@ -515,13 +518,21 @@ if (File.Exists(femalePath))
         && Calls(Method(female, "FemalePMCSoundPatch.NativeBreathDebouncePatch", "Prefix"), "LocalSuppressTacticalCallouts"),
         "installed optional female voice plugin has the precise gate used by its native-play prefix");
 }
-Check(new[] { ("GoForward", 33), ("Gogogo", 34), ("GetBack", 32), ("Regroup", 47), ("HoldPosition", 36), ("OnFriendlyDown", 14) }
+Check(new[] { ("GoForward", 33), ("Gogogo", 34), ("GetBack", 32), ("Regroup", 47), ("HoldPosition", 36), ("OnFriendlyDown", 14),
+        ("Suppress", 43), ("Spreadout", 44), ("GetInCover", 45), ("LeftFlank", 69), ("Scav", 70),
+        ("RightFlank", 72), ("InTheFront", 73), ("OnSix", 74), ("EnemyDown", 75), ("ScavDown", 76),
+        ("EnemyHit", 78), ("KnifeKill", 79) }
     .All(pair => Convert.ToInt32(trigger.Fields.Single(f => f.Name == pair.Item1).Constant) == pair.Item2),
     "tactical voice asset IDs match the installed game's actual phrase enum");
 Check(Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "Observe"), "SquadObserver::Threat")
     && !Calls(Method(plugin, "ImmersiveVoice.SquadObserver", "Hit"), "SquadMemory::Threat")
     && !Calls(Method(plugin, "ImmersiveVoice.SquadObserver", "Threat"), "ViewProbe::"),
     "tactical anchors reuse local visual observations without deriving positions from remote damage or adding a sight probe");
+Check(Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "Observe"), "EnemyDirectionMemory::Observe")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "Observe"), "CombatReportMemory::ObserveLiving")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "ObservedHit"), "CombatReportMemory::ObserveHit")
+    && Calls(Method(plugin, "ImmersiveVoice.VoiceDirector", "ObservedHit"), "SquadObserver::PeerShot"),
+    "new combat reports reuse the existing visual and hit callbacks without a new polling path");
 Check(Type(fika, "Fika.Core.Main.Components.ReviveInteractable").BaseType.FullName == "EFT.Interactive.InteractableObject"
     && !Calls(Method(fika, "Fika.Core.Main.Players.ObservedPlayer", "ToggleDowned"), "CreateCorpse"),
     "installed Fika's revivable ragdoll is not a real Corpse and downing does not create one");

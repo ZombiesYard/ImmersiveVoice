@@ -4,6 +4,8 @@ F12菜单中的“保存排查日志”默认开启。日志写入客户端目�
 
 日志区分事件候选、概率判断、等待、取消、发声尝试及Speaker确认播放。`Request`连接同一次事件；`Time`只属于本客户端时钟，不能直接用两台电脑的数值相减测网络延迟。
 
+2.16.0新增`CombatReport`、`Direction`和`TeamReportVersion=候选/当前`。`TeammateReportedFirst`表示短延迟期间已经实际听见队友先报，因此取消本机候选；`DirectionChanged`、`CombatReportExpired`和`SquadDangerExpired`表示原证据已经过期或变化。日志仍不记录目标身份或坐标。
+
 常见原因：
 
 | 原因 | 含义 |

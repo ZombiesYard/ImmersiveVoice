@@ -8,7 +8,9 @@ namespace ImmersiveVoice
         Contact, LostVisual, KillConfirm, TacticalEnemyDown, KillTaunt,
         Recovery, Acknowledge, CombatBark, CalmMutter, NativeContext,
         RepeatedContact, Bleeding, ArmFracture, LegFracture, MedicalRequest, TeamFollowing, TeamCovering, TeamAdvance, TeamRetreat,
-        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, TeamOnPosition, TeamGoodWork, NpcRetort, NpcNoise, NpcMutter, NpcAcknowledge, NpcFollowing, NpcCovering, TeamReady
+        TeamLead, TeamNeedCover, TeamRegroup, TeamHold, FriendlyDown, TeamOnPosition, TeamGoodWork, NpcRetort, NpcNoise, NpcMutter, NpcAcknowledge, NpcFollowing, NpcCovering, TeamReady,
+        EnemyHitReport, ScavReport, ScavDownReport, KnifeKillReport, EnemyDirection,
+        TeamPush, TeamSuppress, TeamSpreadOut, TeamGetInCover
     }
 
     internal enum VoiceMode { Solo, FikaHost, FikaClient }
@@ -105,20 +107,27 @@ namespace ImmersiveVoice
             => RejectionReasonCore(intent, context, damageVersion, true);
 
         public static string WaitingReason(VoiceIntent intent, bool recentlyHit)
-            => intent == VoiceIntent.TacticalEnemyDown && recentlyHit ? "RecentDamage" : null;
+            => TacticalCombatReport(intent) && recentlyHit ? "RecentDamage" : null;
+
+        public static bool TacticalCombatReport(VoiceIntent intent)
+            => intent == VoiceIntent.TacticalEnemyDown || intent == VoiceIntent.EnemyHitReport
+                || intent == VoiceIntent.ScavReport || intent == VoiceIntent.ScavDownReport
+                || intent == VoiceIntent.KnifeKillReport || intent == VoiceIntent.EnemyDirection
+                || intent == VoiceIntent.TeamPush || intent == VoiceIntent.TeamSuppress
+                || intent == VoiceIntent.TeamSpreadOut || intent == VoiceIntent.TeamGetInCover;
 
         private static string RejectionReasonCore(VoiceIntent intent, BarkContext context, int damageVersion, bool pending)
         {
             if (intent == VoiceIntent.Silent) return "SilentIntent";
-            if (intent == VoiceIntent.TacticalEnemyDown && context.DamageVersion != damageVersion)
+            if (TacticalCombatReport(intent) && context.DamageVersion != damageVersion)
                 return "DamageAfterRequest";
             bool emotional = intent == VoiceIntent.KillTaunt || intent == VoiceIntent.CombatBark || NpcExchange(intent);
-            if (emotional || intent == VoiceIntent.KillConfirm || intent == VoiceIntent.TacticalEnemyDown)
+            if (emotional || intent == VoiceIntent.KillConfirm || TacticalCombatReport(intent))
             {
                 if (context.Injury >= InjuryLevel.BadlyInjured) return "SevereInjury";
                 if (context.HeavyBleeding) return "HeavyBleeding";
                 if (context.Healing) return "Healing";
-                if (context.RecentlyHit && !(pending && intent == VoiceIntent.TacticalEnemyDown)) return "RecentDamage";
+                if (context.RecentlyHit && !(pending && TacticalCombatReport(intent))) return "RecentDamage";
             }
             if (intent == VoiceIntent.KillTaunt || intent == VoiceIntent.KillConfirm)
             {
@@ -126,7 +135,10 @@ namespace ImmersiveVoice
                 if (context.TeamReport) return "TeamInformationPreferred";
                 if (EnemyDown(context, intent == VoiceIntent.KillTaunt) != intent) return "EndingContextChanged";
             }
-            if (intent == VoiceIntent.TacticalEnemyDown && !context.TeamReport) return "TeammateNoLongerNearby";
+            if ((intent == VoiceIntent.TacticalEnemyDown || intent == VoiceIntent.EnemyDirection
+                || intent == VoiceIntent.TeamPush || intent == VoiceIntent.TeamSuppress
+                || intent == VoiceIntent.TeamSpreadOut || intent == VoiceIntent.TeamGetInCover)
+                && !context.TeamReport) return "TeammateNoLongerNearby";
             return null;
         }
 

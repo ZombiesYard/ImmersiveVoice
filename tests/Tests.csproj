@@ -19,13 +19,16 @@
     <Compile Include="../src/MedicalRequestDecision.cs" Link="MedicalRequestDecision.cs" />
     <Compile Include="../src/TreatmentMemory.cs" Link="TreatmentMemory.cs" />
     <Compile Include="../src/HealthSpeechMemory.cs" Link="HealthSpeechMemory.cs" />
+    <Compile Include="../src/CombatReportMemory.cs" Link="CombatReportMemory.cs" />
     <Compile Include="../src/VisualRules.cs" Link="VisualRules.cs" />
     <Compile Include="../src/PlaybackRules.cs" Link="PlaybackRules.cs" />
     <Compile Include="../src/SquadAwareness.cs" Link="SquadAwareness.cs" />
     <Compile Include="../src/DialoguePacketFactory.cs" Link="DialoguePacketFactory.cs" />
     <Compile Include="../src/SquadReadyMemory.cs" Link="SquadReadyMemory.cs" />
+    <Compile Include="../src/EnemyDirectionMemory.cs" Link="EnemyDirectionMemory.cs" />
     <Compile Include="../src/SquadDialogue.cs" Link="SquadDialogue.cs" />
     <Compile Include="../src/SquadMemory.cs" Link="SquadMemory.cs" />
+    <Compile Include="../src/SquadBattleTactics.cs" Link="SquadBattleTactics.cs" />
     <Compile Include="../src/SquadInitiatives.cs" Link="SquadInitiatives.cs" />
     <Compile Include="../src/SquadLossMemory.cs" Link="SquadLossMemory.cs" />
     <Compile Include="../src/VoiceJournal.cs" Link="VoiceJournal.cs" />

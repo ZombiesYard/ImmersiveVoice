@@ -115,7 +115,9 @@ namespace ImmersiveVoice
             return Episode(p, d.Action) == d.Episode;
         }
         public static bool Allowed(SquadAction action, BarkContext context)
-            => !context.RecentlyHit && (!context.Healing || action == SquadAction.RequestCover)
-                && (!context.Survival || action == SquadAction.Retreating || action == SquadAction.RequestCover);
+            => (EmergencyAction(action) || !context.RecentlyHit)
+                && (!context.Healing || action == SquadAction.RequestCover)
+                && (!context.Survival || action == SquadAction.Retreating || action == SquadAction.RequestCover
+                    || EmergencyAction(action));
     }
 }

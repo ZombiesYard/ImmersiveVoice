@@ -15,6 +15,7 @@
     <Compile Include="../src/DialoguePacketFactory.cs" Link="DialoguePacketFactory.cs" />
     <Compile Include="../src/SquadDialogue.cs" Link="SquadDialogue.cs" />
     <Compile Include="../src/SquadMemory.cs" Link="SquadMemory.cs" />
+    <Compile Include="../src/SquadBattleTactics.cs" Link="SquadBattleTactics.cs" />
     <Compile Include="../src/SquadInitiatives.cs" Link="SquadInitiatives.cs" />
     <Compile Include="../src/FikaBridge.cs" Link="FikaBridge.cs" />
     <Compile Include="../src/FaultDetails.cs" Link="FaultDetails.cs" />

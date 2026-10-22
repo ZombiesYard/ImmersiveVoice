@@ -10,7 +10,7 @@ namespace ImmersiveVoice
         public Player Player;
         public Collider Collider;
         public Transform Anchor;
-        public bool Alive, Ally, Corpse;
+        public bool Alive, Ally, Corpse, OrdinaryScav;
         public float Distance;
     }
 
@@ -103,18 +103,23 @@ namespace ImmersiveVoice
             LastReason = target.HealthController.IsAlive ? "VisibleLiving" : "VisibleDeadPlayer";
             return new VisibleContact { Id = target.ProfileId, Player = target, Collider = first,
                 Anchor = target.PlayerBones?.Pelvis?.Original ?? first.transform,
-                Alive = target.HealthController.IsAlive, Ally = IsAlly(local, target), Distance = nearest };
+                Alive = target.HealthController.IsAlive, Ally = IsAlly(local, target),
+                OrdinaryScav = fika.IsAI(target) && OrdinaryScav(target), Distance = nearest };
+        }
+
+        private static bool OrdinaryScav(Player player)
+        {
+            WildSpawnType? role = player?.Profile?.Info?.Settings?.Role;
+            return role == WildSpawnType.assault || role == WildSpawnType.cursedAssault || role == WildSpawnType.marksman;
         }
 
         public static bool RecognizableEnemy(Player local, VisibleContact seen, FikaBridge fika)
         {
             Player target = seen?.Player;
             if (target == null || !seen.Alive) return false;
-            WildSpawnType? role = target.Profile?.Info?.Settings?.Role;
-            bool ordinaryScav = role == WildSpawnType.assault || role == WildSpawnType.cursedAssault || role == WildSpawnType.marksman;
             return VisualRules.RecognizableEnemy(seen.Ally, fika.IsAI(target),
                 local.Side == EPlayerSide.Bear || local.Side == EPlayerSide.Usec,
-                target.Side == EPlayerSide.Bear || target.Side == EPlayerSide.Usec, ordinaryScav);
+                target.Side == EPlayerSide.Bear || target.Side == EPlayerSide.Usec, seen.OrdinaryScav);
         }
 
         internal static bool IsAlly(Player local, IPlayer other)

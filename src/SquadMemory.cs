@@ -27,7 +27,7 @@ namespace ImmersiveVoice
 
     internal enum SquadCommand { None, Follow, Cover, Advance, Retreat, Regroup, Hold, Praise }
     internal enum SquadAction { None, Following, Covering, Advancing, Retreating, Regrouping, Holding,
-        Leading, RequestCover, Rallying, HoldTeam, Compliment }
+        Leading, RequestCover, Rallying, HoldTeam, Compliment, PushNow, Suppressing, SpreadOut, GetInCover }
     internal struct SquadDecision
     {
         public int Slot, PeerVersion, Episode, CommandVersion, RequestSerial, ThreatVersion, ObservationVersion;
@@ -129,6 +129,7 @@ namespace ImmersiveVoice
         {
             _threatId = null; _threatAt = -1000f; _threatVersion++;
             for (int i = 0; i < Capacity; i++) ResetMovement(_peers[i]);
+            ClearBattleThreat();
         }
         public void Combat(bool active)
         {
@@ -236,6 +237,7 @@ namespace ImmersiveVoice
                 }
                 SampleRequest(p, now, self, other, mine, myLength, dt);
                 SampleInitiatives(p, now, self, other, mine, theirs, myLength, theirLength, dt);
+                SampleBattleMotion(slot, p, now, old.Other, other, theirs, theirLength, dt);
             }
             else { p.Speed = 0f; p.Lead.Interrupt(); p.Rally.Interrupt(); p.Hold.Interrupt(); }
             if (following)
@@ -339,6 +341,7 @@ namespace ImmersiveVoice
         {
             Peer p = _peers[slot];
             if (!Fresh(p, now) || string.IsNullOrEmpty(attacker)) return false;
+            Danger(now, attacker);
             if (p.Attacker != attacker || now - p.HitAt > 8f)
             {
                 p.CoverEndReason = "SquadCoverAttackChanged";
@@ -430,12 +433,14 @@ namespace ImmersiveVoice
             return false;
         }
         private int Episode(Peer p, SquadAction action)
-            => action == SquadAction.Following ? p.FollowEpisode : action == SquadAction.Covering ? p.CoverEpisode
+            => BattleAction(action) ? BattleEpisode(p, action)
+                : action == SquadAction.Following ? p.FollowEpisode : action == SquadAction.Covering ? p.CoverEpisode
                 : action == SquadAction.Advancing || action == SquadAction.Retreating ? p.MoveEpisode
                 : action == SquadAction.RequestCover ? _coverNeed.Version : For(p, action)?.Version ?? p.CommandVersion;
         private static int MoveBit(SquadAction action) => action == SquadAction.Advancing ? 1 : 2;
         private bool Decided(Peer p, SquadAction action)
-            => action == SquadAction.Following ? p.FollowDecided : action == SquadAction.Covering ? p.CoverDecided && p.DecidedCoverTarget == p.CoverTarget
+            => BattleAction(action) ? BattleDecided(p, action)
+                : action == SquadAction.Following ? p.FollowDecided : action == SquadAction.Covering ? p.CoverDecided && p.DecidedCoverTarget == p.CoverTarget
                 : action == SquadAction.RequestCover ? _coverNeed.Decided : For(p, action)?.Decided
                     ?? (p.MoveDecided & MoveBit(action)) != 0;
         public SquadDecision Decide(float now, bool expressions, bool replies, bool weaponReady, bool survival = false, bool healing = false)
@@ -454,9 +459,11 @@ namespace ImmersiveVoice
                 bool requested = replies && !p.CommandDecided && now <= p.CommandUntil
                     && (!survival || requestedAction == SquadAction.Retreating)
                     && ActionValid(p, requestedAction, now, weaponReady);
-                SquadAction action = requested ? requestedAction
+                SquadAction battle = BattleCandidate(i, p, now, weaponReady);
+                SquadAction action = EmergencyAction(battle) ? battle : requested ? requestedAction
                     : ActionValid(p, SquadAction.RequestCover, now, weaponReady) ? SquadAction.RequestCover
                     : ActionValid(p, SquadAction.Retreating, now, weaponReady) ? SquadAction.Retreating
+                    : battle != SquadAction.None ? battle
                     : weaponReady && Covering(p, now) ? SquadAction.Covering
                     : ActionValid(p, SquadAction.HoldTeam, now, weaponReady) ? SquadAction.HoldTeam
                     : ActionValid(p, SquadAction.Rallying, now, weaponReady) ? SquadAction.Rallying
@@ -467,11 +474,13 @@ namespace ImmersiveVoice
                 if (!Allowed(action, new BarkContext { Injury = survival ? InjuryLevel.BadlyInjured : InjuryLevel.Healthy, Healing = healing }))
                 { Silence = SquadSilence.Survival; continue; }
                 if (requested && now < p.CommandAt) { Silence = SquadSilence.HeardRequestPlaying; continue; }
-                bool reply = requested;
+                bool reply = requested && !EmergencyAction(action);
                 if (!reply && !expressions) continue;
                 if (!reply && CommandFor(action) != SquadCommand.None && p.Command == CommandFor(action) && now <= p.CommandUntil)
                 { Silence = SquadSilence.HeardRequestPlaying; continue; }
-                float weight = (reply ? 300f : 0f) + (action == SquadAction.RequestCover ? 160f : action == SquadAction.Retreating ? 150f
+                float weight = (reply ? 300f : 0f) + (action == SquadAction.GetInCover ? 500f : action == SquadAction.SpreadOut ? 450f
+                    : action == SquadAction.RequestCover ? 160f : action == SquadAction.Retreating ? 150f
+                    : action == SquadAction.PushNow ? 125f : action == SquadAction.Suppressing ? 120f
                     : action == SquadAction.Covering ? 100f : action == SquadAction.HoldTeam ? 70f
                     : action == SquadAction.Rallying ? 60f : action == SquadAction.Advancing ? 50f : action == SquadAction.Leading ? 10f : 0f)
                     - p.Distance + (i == _primary ? 2f : 0f);
@@ -496,11 +505,12 @@ namespace ImmersiveVoice
             bool newReply = best.Reply && selected.RequestSerial > _decisionRequestSerial && now >= _replyAt;
             bool newRetreat = !best.Reply && best.Action == SquadAction.Retreating && now >= _retreatAt;
             bool newCover = !best.Reply && best.Action == SquadAction.RequestCover && now >= _coverAt;
-            bool tactical = SquadDialogue.Tactical(best.Action);
+            bool tactical = SquadDialogue.Tactical(best.Action) || BattleTactical(best.Action);
             if (now < (tactical ? _tacticalAt : _decisionAt) && !newReply && !newRetreat && !newCover)
             { Silence = SquadSilence.DecisionCooldown; return default; }
             if (best.Reply && now < _replyAt) { Silence = SquadSilence.ReplyCooldown; return default; }
-            if (best.Action == SquadAction.Following) selected.FollowDecided = true;
+            if (BattleAction(best.Action)) MarkBattleDecided(selected, best.Action);
+            else if (best.Action == SquadAction.Following) selected.FollowDecided = true;
             else if (best.Action == SquadAction.Covering) { selected.CoverDecided = true; selected.DecidedCoverTarget = selected.CoverTarget; }
             else if (best.Action == SquadAction.Advancing || best.Action == SquadAction.Retreating)
                 selected.MoveDecided |= MoveBit(best.Action);
@@ -534,6 +544,7 @@ namespace ImmersiveVoice
             if ((d.Action == SquadAction.Advancing || d.Action == SquadAction.Retreating) && d.ThreatVersion != _threatVersion)
                 return "SquadThreatChanged";
             if (!Fresh(p, now)) return Remembered(d, p, now) ? null : "SquadObservationExpired";
+            if (BattleAction(d.Action)) return BattleRejectionReason(d, now, weaponReady);
             if ((ActionValid(p, d.Action, now, weaponReady) && Episode(p, d.Action) == d.Episode)
                 || BriefMotionContinuity(d, p, now)) return null;
             if (d.Action == SquadAction.Covering)

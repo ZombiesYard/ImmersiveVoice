@@ -103,7 +103,11 @@ namespace ImmersiveVoice
                 return d.Action == SquadAction.Covering ? VoiceIntent.TeamCovering
                     : d.Action == SquadAction.Holding || d.Action == SquadAction.Regrouping ? VoiceIntent.TeamOnPosition
                     : VoiceIntent.TeamFollowing;
-            return d.Action == SquadAction.Following ? VoiceIntent.TeamFollowing
+            return d.Action == SquadAction.PushNow ? VoiceIntent.TeamPush
+                : d.Action == SquadAction.Suppressing ? VoiceIntent.TeamSuppress
+                : d.Action == SquadAction.SpreadOut ? VoiceIntent.TeamSpreadOut
+                : d.Action == SquadAction.GetInCover ? VoiceIntent.TeamGetInCover
+                : d.Action == SquadAction.Following ? VoiceIntent.TeamFollowing
                 : d.Action == SquadAction.Covering ? VoiceIntent.TeamCovering
                 : d.Action == SquadAction.Advancing ? VoiceIntent.TeamAdvance
                 : d.Action == SquadAction.Leading ? VoiceIntent.TeamLead
@@ -118,7 +122,11 @@ namespace ImmersiveVoice
             if (d.Action == SquadAction.Compliment) return 66; // GoodWork
             if (d.Reply) return d.Action == SquadAction.Covering ? 60
                 : d.Action == SquadAction.Holding || d.Action == SquadAction.Regrouping ? 64 : 59;
-            return d.Action == SquadAction.Following ? 59 : d.Action == SquadAction.Covering ? 60
+            return d.Action == SquadAction.PushNow ? 34 // Gogogo
+                : d.Action == SquadAction.Suppressing ? 43 // Suppress
+                : d.Action == SquadAction.SpreadOut ? 44 // Spreadout
+                : d.Action == SquadAction.GetInCover ? 45 // GetInCover
+                : d.Action == SquadAction.Following ? 59 : d.Action == SquadAction.Covering ? 60
                 : d.Action == SquadAction.Advancing ? 33 : d.Action == SquadAction.Leading ? 31
                 : d.Action == SquadAction.RequestCover ? 30 : d.Action == SquadAction.Rallying ? 47
                 : d.Action == SquadAction.HoldTeam ? 36 : 32;
@@ -130,6 +138,21 @@ namespace ImmersiveVoice
                 : phrase == 75 ? SquadCommand.Praise : SquadCommand.None;
         public static bool ReadyCall(int phrase) => phrase == 30 || phrase == 43 || phrase == 23 || phrase == 20;
         public static bool Tactical(SquadAction action) => action == SquadAction.Covering || action == SquadAction.Advancing
-            || action == SquadAction.Retreating || action == SquadAction.RequestCover;
+            || action == SquadAction.Retreating || action == SquadAction.RequestCover
+            || action == SquadAction.PushNow || action == SquadAction.Suppressing
+            || action == SquadAction.SpreadOut || action == SquadAction.GetInCover;
+        public static bool ReportPhrase(int phrase)
+            => phrase == 69 || phrase == 70 || phrase == 72 || phrase == 73 || phrase == 74
+                || phrase == 75 || phrase == 76 || phrase == 78 || phrase == 79
+                || phrase == 34 || phrase == 43 || phrase == 44 || phrase == 45;
+        public static float ReportDelay(int local, int peer0, int peer1, int peer2)
+        {
+            if (local <= 0) return 0.2f;
+            int rank = (peer0 > 0 && peer0 < local ? 1 : 0)
+                + (peer1 > 0 && peer1 < local ? 1 : 0)
+                + (peer2 > 0 && peer2 < local ? 1 : 0);
+            return 0.12f + rank * 0.18f;
+        }
+        public static bool ReportCurrent(int captured, int current) => captured < 0 || captured == current;
     }
 }

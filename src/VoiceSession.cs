@@ -310,6 +310,7 @@ namespace ImmersiveVoice
 
         private bool DirectedNative(EPhraseTrigger phrase)
         {
+            if (SquadDialogue.ReportPhrase((int)phrase)) return true;
             // Kill/hit HUD prompts may reveal events behind walls. Only the
             // director's visible evidence may authorize those automatic lines.
             if (phrase == EPhraseTrigger.OnEnemyDown || phrase == EPhraseTrigger.OnEnemyShot) return true;
@@ -509,6 +510,24 @@ namespace ImmersiveVoice
                     intent = phrase == EPhraseTrigger.OnEnemyGrenade ? VoiceIntent.GrenadeWarning : VoiceIntent.GrenadeOut;
                     repeat = groupGap = 2f;
                     break;
+            }
+            int report = (int)phrase;
+            if (report == 69 || report == 72 || report == 73 || report == 74)
+            {
+                group = "contact"; intent = VoiceIntent.EnemyDirection; repeat = groupGap = 8f;
+            }
+            else if (report == 70 || report == 75 || report == 76 || report == 78 || report == 79)
+            {
+                group = "combat-report"; repeat = groupGap = 8f;
+                intent = report == 70 ? VoiceIntent.ScavReport : report == 76 ? VoiceIntent.ScavDownReport
+                    : report == 78 ? VoiceIntent.EnemyHitReport : report == 79 ? VoiceIntent.KnifeKillReport
+                    : VoiceIntent.TacticalEnemyDown;
+            }
+            else if (report == 34 || report == 43 || report == 44 || report == 45)
+            {
+                group = "team-tactical"; repeat = groupGap = 8f;
+                intent = report == 34 ? VoiceIntent.TeamPush : report == 43 ? VoiceIntent.TeamSuppress
+                    : report == 44 ? VoiceIntent.TeamSpreadOut : VoiceIntent.TeamGetInCover;
             }
             return new VoiceCue { Phrase = (int)phrase, Key = group + ":" + context, Group = group,
                 Repeat = repeat, GroupGap = groupGap, Urgent = urgent, Intent = intent, SemanticRepeat = semanticRepeat,

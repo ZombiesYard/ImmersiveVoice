@@ -47,6 +47,7 @@ namespace ImmersiveVoice
         private float _othersUntil;
         private long _ticks, _elapsed, _maximum;
         private int _samples, _checks, _decisions, _discoveryEntries, _hits, _hitCallbacks, _shots;
+        private int _reportVersion;
         private string _silence;
         private float _traceAt;
 
@@ -58,6 +59,17 @@ namespace ImmersiveVoice
         public bool Enabled => !_disposed && !_faulted && _settings.Director.Value
             && (_settings.SquadCoordination.Value || _settings.TeamReplies.Value || _settings.FriendlyDown.Value) && _fika.Mode(_local) != VoiceMode.Solo;
         public bool OthersSpeaking(float now) => _active && now < _othersUntil;
+        public int ReportVersion => _reportVersion;
+        public float ReportDelay
+        {
+            get
+            {
+                return SquadDialogue.ReportDelay(_fika.NetworkId(_local),
+                    Available(_peers[0]) ? _fika.NetworkId(_peers[0].Player) : 0,
+                    Available(_peers[1]) ? _fika.NetworkId(_peers[1].Player) : 0,
+                    Available(_peers[2]) ? _fika.NetworkId(_peers[2].Player) : 0);
+            }
+        }
         private bool Member(Player p) => p != null && p != _local && !_fika.IsAI(p) && !p.IsYourPlayer
             && !string.IsNullOrEmpty(p.ProfileId) && p.GameWorld == _world && ViewProbe.IsAlly(_local, p);
         private bool Available(Peer p) => Member(p.Player) && p.Player.gameObject.activeInHierarchy
@@ -226,8 +238,8 @@ namespace ImmersiveVoice
                     }
                 }
                 if (!_decision.Take(now, SquadMemory.DecisionPeriod)) return default;
-                if (context.RecentlyHit || OthersSpeaking(now))
-                { Silence(now, context.RecentlyHit ? "RecentDamage" : "NearbySpeech"); return default; }
+                if (OthersSpeaking(now))
+                { Silence(now, "NearbySpeech"); return default; }
                 _decisions++;
                 SquadDecision decision = _memory.Decide(now, _settings.SquadCoordination.Value, _settings.TeamReplies.Value,
                     weaponReady, context.Survival, context.Healing);
@@ -315,6 +327,16 @@ namespace ImmersiveVoice
             }
             catch (Exception ex) { Fail(ex); }
         }
+        public bool PeerShot(IPlayer attacker, string visibleTarget, float now)
+        {
+            if (!_active || !Enabled || attacker == null || string.IsNullOrEmpty(visibleTarget)) return false;
+            for (int i = 0; i < SquadMemory.Capacity; i++)
+                if (_peers[i].Id == attacker.ProfileId && Perceived(_peers[i], now))
+                    return _memory.PeerShot(i, now, visibleTarget);
+            return false;
+        }
+        public bool Danger(float now, string visibleThreat)
+            => _active && Enabled && _memory.Danger(now, visibleThreat);
         public void Shot(float now, VisibleContact target)
         {
             if (!_active || !Enabled) return;
@@ -346,6 +368,7 @@ namespace ImmersiveVoice
                     p.Awareness.Heard(now);
                     _memory.Sample(i, now, Point(_local.Transform.position), Point(p.Player.Transform.position), true);
                     _othersUntil = Math.Max(_othersUntil, now + clip.Length + 0.35f);
+                    if (SquadDialogue.ReportPhrase((int)phrase)) _reportVersion++;
                     // Manual Roger retains its conservative suppression. An
                     // unrelated Going/Covering must not cancel another call;
                     // automatic replies are coordinated by their exact ticket.
@@ -475,6 +498,7 @@ namespace ImmersiveVoice
             CancelReady(manual ? "ManualPriority" : "SquadPaused");
             if (_active || manual)
             {
+                _reportVersion++;
                 _memory.Suspend(now, manual);
                 _loss.Pause();
                 for (int i = 0; i < SquadMemory.Capacity; i++)

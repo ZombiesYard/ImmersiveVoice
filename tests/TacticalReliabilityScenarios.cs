@@ -55,8 +55,17 @@ internal static class TacticalReliabilityScenarios
         policy.Spoken(18, 1, 8, true, false, 3, new VoiceCue { Key = "contact:b", Group = "contact", GroupGap = 10, Repeat = 10 });
         check(policy.BlockReason(contact.Cue, 20) == "RecentSubject", "contact information still respects repeat suppression");
         check(VisualRules.TacticalReport(VoiceIntent.TacticalEnemyDown)
+            && VisualRules.TacticalReport(VoiceIntent.EnemyDirection)
+            && VisualRules.TacticalReport(VoiceIntent.TeamGetInCover)
             && !VisualRules.TacticalReport(VoiceIntent.KillTaunt) && !VisualRules.TacticalReport(VoiceIntent.KillConfirm),
             "team kill information can bypass ordinary spacing while solo emotional endings cannot");
+        var freshReport = new BarkContext { Mode = VoiceMode.FikaClient, NearbyTeammate = true, RecentlyHit = true, DamageVersion = 7 };
+        check(SemanticVoice.PendingRejectionReason(VoiceIntent.TeamSpreadOut, freshReport, 7) == null
+            && SemanticVoice.WaitingReason(VoiceIntent.TeamSpreadOut, true) == "RecentDamage",
+            "an emergency report waits out the immediate hit reaction instead of being discarded");
+        freshReport.RecentlyHit = false; freshReport.DamageVersion = 8;
+        check(SemanticVoice.RejectionReason(VoiceIntent.TeamSpreadOut, freshReport, 7) == "DamageAfterRequest",
+            "new damage invalidates an older queued emergency report");
 
         check(VisualRules.RecognizableEnemy(false, true, true, false, true), "PMC can recognize an actually visible ordinary Scav before firing");
         check(VisualRules.RecognizableEnemy(false, true, true, true, false), "visible AI PMC is recognizable to local PMC");

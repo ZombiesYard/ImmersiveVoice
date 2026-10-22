@@ -21,6 +21,24 @@ internal static class SquadDialogueScenarios
             "actual reload and empty-weapon calls create support opportunities");
         check(SquadDialogue.Command(75) == SquadCommand.Praise && SquadDialogue.Command(18) == SquadCommand.None,
             "witnessed kill report can be acknowledged without treating native combat hints as proof");
+        check(SquadDialogue.ReportPhrase(69) && SquadDialogue.ReportPhrase(79)
+            && SquadDialogue.ReportPhrase(34) && SquadDialogue.ReportPhrase(45) && !SquadDialogue.ReportPhrase(18),
+            "only exact direction, combat-report and battle-tactic phrases join report turn-taking");
+        check(Math.Abs(SquadDialogue.ReportDelay(10, 20, 30, 40) - .12f) < .001f
+            && Math.Abs(SquadDialogue.ReportDelay(40, 10, 20, 30) - .66f) < .001f,
+            "four human clients receive a deterministic earliest-to-latest report order");
+        check(SquadDialogue.ReportCurrent(8, 8) && !SquadDialogue.ReportCurrent(8, 9)
+            && SquadDialogue.ReportCurrent(-1, 9),
+            "hearing a teammate report cancels pending coordinated reports without affecting solo speech");
+        foreach (var tactic in new[] { (SquadAction.PushNow, 34, VoiceIntent.TeamPush),
+            (SquadAction.Suppressing, 43, VoiceIntent.TeamSuppress),
+            (SquadAction.SpreadOut, 44, VoiceIntent.TeamSpreadOut),
+            (SquadAction.GetInCover, 45, VoiceIntent.TeamGetInCover) })
+        {
+            var decision = new SquadDecision { Action = tactic.Item1 };
+            check(SquadDialogue.Phrase(decision) == tactic.Item2 && SquadDialogue.Intent(decision) == tactic.Item3
+                && SquadDialogue.Tactical(tactic.Item1), "battle tactic keeps its exact phrase and meaning: " + tactic.Item1);
+        }
         check(!ReactionQueue.ExchangeInvalidates(ReactionKind.EnemyDown, VoiceIntent.TacticalEnemyDown, true),
             "fresh witnessed team kill report survives renewed combat");
         check(ReactionQueue.ExchangeInvalidates(ReactionKind.EnemyDown, VoiceIntent.KillTaunt, true)
@@ -45,8 +63,8 @@ internal static class SquadDialogueScenarios
         m = Team(); m.Combat(true); m.Threat("enemy", P(50), 0);
         for (float t = 0; t <= 4; t += .25f) m.Sample(0, t, P(0), P(t * 2 + 3), true);
         m.Shot(3.5f, "enemy"); m.Shot(3.8f, "enemy");
-        check(m.Decide(4, true, true, true).Action == SquadAction.Covering,
-            "real fire at a known threat covers a moving teammate without requiring injury");
+        check(m.Decide(4, true, true, true).Action == SquadAction.PushNow,
+            "real fire at a known threat plus a teammate pushing that threat selects the specific Gogogo event");
         m.Suspend(4.1f); m.Threat("new-enemy", P(50), 4.25f);
         m.Sample(0, 4.25f, P(0), P(11), true);
         m.Shot(4.3f, "new-enemy"); m.Shot(4.6f, "new-enemy");
@@ -61,8 +79,8 @@ internal static class SquadDialogueScenarios
             m.Sample(0, t, P(0), P(t + 3), true);
             if (t == 11.5f || t == 11.75f) m.Shot(t, "next-enemy");
         }
-        check(m.Decide(12, true, true, true).Action == SquadAction.Covering,
-            "new related target permits another cover statement after tactical cooldown");
+        check(m.Decide(12, true, true, true).Action == SquadAction.PushNow,
+            "a new related target permits another fire-and-push statement after tactical cooldown");
         check(!m.Decide(12.1f, true, true, true).Exists, "same cover episode is not repeated after changing targets");
         m = Team(); m.Combat(true); m.Threat("enemy", P(50), 0);
         for (float t = 0; t <= 4; t += .25f) m.Sample(0, t, P(0), P(t * 2 + 3), true);

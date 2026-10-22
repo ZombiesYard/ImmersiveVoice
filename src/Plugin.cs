@@ -17,7 +17,7 @@ namespace ImmersiveVoice
     public sealed class Plugin : BaseUnityPlugin
     {
         public const string Id = "local.immersivevoice";
-        public const string Version = "2.15.0";
+        public const string Version = "2.16.0";
         private static Plugin _instance;
         private Harmony _harmony;
         private Settings _settings;
@@ -56,7 +56,7 @@ namespace ImmersiveVoice
                     Patch(typeof(Player), "ShotReactions", nameof(OnObservedHit), false);
                     _harmony.Patch(_fika.Extract, postfix: new HarmonyMethod(typeof(Plugin), nameof(OnExtracted)));
                 }
-                Logger.LogInfo("Immersive Voice " + Version + " ready. Bounded four-player coordination, witnessed teammate loss and per-session diagnostics. Missing clips stay silent. Local player only. Pause toggles silence; F12 config.");
+                Logger.LogInfo("Immersive Voice " + Version + " ready. Evidence-bound combat reports and four-player tactics. Missing clips stay silent. Local player only. Pause toggles silence; F12 config.");
             }
             catch (Exception ex)
             {
